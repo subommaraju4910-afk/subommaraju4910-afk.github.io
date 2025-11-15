@@ -2,8 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>SquatSense AI - Full Analysis</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SquatSense AI - Local Pose Analysis</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection/dist/movenet.js"></script>
+
 <style>
   body {
     font-family: Arial, sans-serif;
@@ -15,13 +20,10 @@
   #upload-area {
     border: 2px dashed #aaa;
     padding: 3rem;
-    margin-bottom: 1rem;
     cursor: pointer;
-    border-radius: 12px;
     background: white;
-  }
-  #upload-area:hover {
-    border-color: #5566cc;
+    border-radius: 12px;
+    margin-bottom: 1rem;
   }
   #progress-bar {
     width: 80%;
@@ -35,46 +37,33 @@
     height: 100%;
     background: #6677ff;
     width: 0%;
-    transition: width 0.15s linear;
-  }
-  button {
-    padding: 0.5rem 1.2rem;
-    margin: 0.5rem;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    font-weight: bold;
-  }
-  button#analyze-btn {
-    background: #6677ff;
-    color: white;
-  }
-  button#clear-btn {
-    background: #444;
-    color: white;
+    transition: width 0.25s linear;
   }
   #report {
     margin-top: 2rem;
     max-width: 700px;
-    margin-left: auto;
-    margin-right: auto;
     background: #fff;
-    border-radius: 8px;
-    padding: 1rem;
-    box-shadow: 0 0 8px #ccc;
+    padding: 1.5rem;
+    border-radius: 10px;
+    box-shadow: 0 0 10px #bbb;
     text-align: left;
     line-height: 1.5rem;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  canvas {
+    display: none;
   }
 </style>
 </head>
 <body>
 
-<h1>SquatSense AI</h1>
-<p>Upload an image of your squat and receive form feedback.</p>
+<h1>SquatSense AI (Local Mode)</h1>
+<p>Upload a squat photo. AI will detect your posture locally.</p>
 
-<div id="upload-area" tabindex="0">
-  ⬆️ Drop photo here or click to browse
-  <input type="file" id="file-input" accept="image/*" style="display:none" />
+<div id="upload-area">
+  ⬆️ Click to upload photo
+  <input type="file" id="file-input" accept="image/*" style="display:none">
 </div>
 
 <div>
@@ -82,114 +71,169 @@
   <button id="clear-btn" disabled>Clear</button>
 </div>
 
-<div id="progress-bar">
-  <div id="progress-bar-fill"></div>
-</div>
-
+<div id="progress-bar"><div id="progress-bar-fill"></div></div>
 <div id="report"></div>
 
+<canvas id="canvas"></canvas>
+
 <script>
-  const uploadArea = document.getElementById('upload-area');
-  const fileInput = document.getElementById('file-input');
-  const analyzeBtn = document.getElementById('analyze-btn');
-  const clearBtn = document.getElementById('clear-btn');
-  const progressBarFill = document.getElementById('progress-bar-fill');
-  const reportDiv = document.getElementById('report');
+let selectedFile = null;
+let detector;
 
-  let selectedFile = null;
+// clickable upload
+document.getElementById("upload-area").onclick = () => {
+  document.getElementById("file-input").click();
+};
 
-  uploadArea.addEventListener('click', () => fileInput.click());
-  uploadArea.addEventListener('keydown', e => {
-    if (e.key === 'Enter' || e.key === ' ') fileInput.click();
-  });
+document.getElementById("file-input").onchange = e => {
+  if (e.target.files.length) {
+    selectedFile = e.target.files[0];
+    document.getElementById("report").innerHTML = 
+      `<p>Selected: <strong>${selectedFile.name}</strong></p>`;
+    document.getElementById("analyze-btn").disabled = false;
+    document.getElementById("clear-btn").disabled = false;
+  }
+};
 
-  fileInput.addEventListener('change', e => {
-    if (e.target.files.length) {
-      selectedFile = e.target.files[0];
-      reportDiv.innerHTML = `<p>Selected file: <strong>${selectedFile.name}</strong></p>`;
-      analyzeBtn.disabled = false;
-      clearBtn.disabled = false;
-      progressBarFill.style.width = '0%';
+// clear button
+document.getElementById("clear-btn").onclick = () => {
+  selectedFile = null;
+  document.getElementById("file-input").value = "";
+  document.getElementById("report").innerHTML = "";
+  document.getElementById("analyze-btn").disabled = true;
+  document.getElementById("clear-btn").disabled = true;
+  document.getElementById("progress-bar-fill").style.width = "0%";
+};
+
+// analyze button
+document.getElementById("analyze-btn").onclick = async () => {
+  document.getElementById("analyze-btn").disabled = true;
+  document.getElementById("clear-btn").disabled = true;
+
+  runProgressBar();
+  await loadModel();
+  analyzeSquat(selectedFile);
+};
+
+// progress bar animation
+function runProgressBar() {
+  let progress = 0;
+  let bar = document.getElementById("progress-bar-fill");
+
+  let interval = setInterval(() => {
+    progress += 3;
+    if (progress >= 100) {
+      progress = 100;
+      clearInterval(interval);
     }
-  });
+    bar.style.width = progress + "%";
+  }, 70);
+}
 
-  clearBtn.addEventListener('click', () => {
-    selectedFile = null;
-    fileInput.value = '';
-    reportDiv.innerHTML = '';
-    analyzeBtn.disabled = true;
-    clearBtn.disabled = true;
-    progressBarFill.style.width = '0%';
-  });
-
-  analyzeBtn.addEventListener('click', () => {
-    if (!selectedFile) return;
-    analyzeBtn.disabled = true;
-    clearBtn.disabled = true;
-    reportDiv.innerHTML = `<p>Analyzing ${selectedFile.name}…</p>`;
-    runProgressBar(selectedFile);
-  });
-
-  // Progress bar animation
-  function runProgressBar(file) {
-    let progress = 0;
-    progressBarFill.style.width = "0%";
-
-    const interval = setInterval(() => {
-      progress += 2.5;
-      if (progress >= 100) {
-        progress = 100;
-        clearInterval(interval);
-        showReport(file);
-      }
-      progressBarFill.style.width = progress + "%";
-    }, 80);
+// load MoveNet model
+async function loadModel() {
+  if (!detector) {
+    detector = await poseDetection.createDetector(
+      poseDetection.SupportedModels.MoveNet,
+      { modelType: "SinglePose.Lightning" }
+    );
   }
+}
 
-  // REAL AI BACKEND CALL
-  async function showReport(file) {
-    reportDiv.innerHTML = "<p>Generating detailed squat analysis…</p>";
+// main analysis
+async function analyzeSquat(file) {
+  document.getElementById("report").innerHTML = "<p>Processing image…</p>";
 
-    const base64 = await fileToBase64(file);
+  let img = new Image();
+  img.src = URL.createObjectURL(file);
 
-    try {
-      const response = await fetch("http://localhost:3000/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: base64 })
-      });
+  img.onload = async () => {
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
 
-      const data = await response.json();
+    canvas.width = img.width;
+    canvas.height = img.height;
+    ctx.drawImage(img, 0, 0, img.width, img.height);
 
-      const formatted = data.analysis
-        .replace(/\n\n/g, "<br><br>")
-        .replace(/\n/g, "<br>");
+    const poses = await detector.estimatePoses(canvas);
 
-      reportDiv.innerHTML = `
-        <h2>AI Form Analysis: ${file.name}</h2>
-        <div>${formatted}</div>
-        <hr>
-        <p><strong>Suggestion:</strong> Try uploading different angles (side, rear, 45°) for an advanced breakdown.</p>
-      `;
-
-    } catch (err) {
-      console.error(err);
-      reportDiv.innerHTML = `
-        <p style="color:red;"><strong>❌ ERROR:</strong> Cannot reach AI backend.</p>
-        <p>Make sure your backend server is running at:<br>
-        <code>http://localhost:3000/analyze</code></p>
-      `;
+    if (!poses.length) {
+      document.getElementById("report").innerHTML =
+        "<p>❌ No person detected in the image.</p>";
+      return;
     }
+
+    const keypoints = poses[0].keypoints;
+    const analysis = analyzeForm(keypoints);
+
+    document.getElementById("report").innerHTML = `
+      <h2>Squat Analysis Result</h2>
+      ${analysis}
+      <hr>
+      <p><em>Local AI powered by TensorFlow.js (no server).</em></p>
+    `;
+  };
+}
+
+// angle helper (3-point angle)
+function angle(a, b, c) {
+  const ab = { x: a.x - b.x, y: a.y - b.y };
+  const cb = { x: c.x - b.x, y: c.y - b.y };
+
+  const dot = ab.x * cb.x + ab.y * cb.y;
+  const magAB = Math.sqrt(ab.x**2 + ab.y**2);
+  const magCB = Math.sqrt(cb.x**2 + cb.y**2);
+
+  return Math.acos(dot / (magAB * magCB)) * (180 / Math.PI);
+}
+
+// squat form analysis logic
+function analyzeForm(k) {
+  const get = name => k.find(p => p.name === name);
+
+  // angles
+  let kneeLeft = angle(get("left_hip"), get("left_knee"), get("left_ankle"));
+  let kneeRight = angle(get("right_hip"), get("right_knee"), get("right_ankle"));
+  
+  let hipAngleLeft = angle(get("left_shoulder"), get("left_hip"), get("left_knee"));
+  let hipAngleRight = angle(get("right_shoulder"), get("right_hip"), get("right_knee"));
+
+  let backAngle = angle(get("left_shoulder"), get("left_hip"), get("right_shoulder"));
+
+  let issues = [];
+
+  // depth
+  if (kneeLeft < 70 || kneeRight < 70) {
+    issues.push("• **You are not hitting depth** — knees angles are too open (likely above parallel).");
+  } else {
+    issues.push("• **Depth looks solid** — your knee angles suggest you are close to or below parallel.");
   }
 
-  function fileToBase64(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result.split(",")[1]);
-      reader.onerror = reject;
-    });
+  // knee valgus
+  const kneeDistance = Math.abs(get("left_knee").x - get("right_knee").x);
+  const ankleDistance = Math.abs(get("left_ankle").x - get("right_ankle").x);
+
+  if (kneeDistance < ankleDistance * 0.7) {
+    issues.push("• **Knees are collapsing inward (valgus)** — push knees out and engage glutes.");
+  } else {
+    issues.push("• **Knee tracking looks stable**.");
   }
+
+  // back rounding
+  if (backAngle < 150) {
+    issues.push("• **Back is rounding forward** — keep chest up and brace harder.");
+  } else {
+    issues.push("• **Back position looks neutral**.");
+  }
+
+  // hip shift
+  let hipShift = Math.abs(get("left_hip").y - get("right_hip").y);
+  if (hipShift > 20) {
+    issues.push("• **Hip shift detected** — weight may be uneven between legs.");
+  }
+
+  return issues.map(i => `<p>${i}</p>`).join("");
+}
 </script>
 
 </body>
