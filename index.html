@@ -6,28 +6,29 @@
   <title>PoseForm Analyzer</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/pose.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <style>
-    #uploadArea { border: 3px dashed #aaa; border-radius: 12px; transition: all 0.3s; }
-    #uploadArea:hover { border-color: #6366f1; background: #f8faff; }
-    .thumb { cursor: pointer; transition: all 0.2s; }
-    .thumb:hover { transform: scale(1.05); }
-    .silhouette { position: absolute; top: 0; left: 0; opacity: 0.3; pointer-events: none; }
-    .hidden { display: none !important; }
+    #uploadArea { @apply border-4 border-dashed border-gray-400 rounded-xl transition-all duration-300; }
+    #uploadArea:hover { @apply border-indigo-600 bg-indigo-50; }
+    .thumb { @apply cursor-pointer transition-transform hover:scale-105; }
+    .silhouette { @apply absolute top-0 left-0 opacity-40 pointer-events-none; }
+    .hidden { @apply hidden; }
+    .mirror { transform: scaleX(-1); }
   </style>
 </head>
-<body class="bg-gray-50 text-gray-800 font-sans">
+<body class="bg-gradient-to-br from-gray-100 to-gray-200 min-h-screen font-sans">
 
-<div class="max-w-6xl mx-auto p-4">
-  <h1 class="text-4xl font-bold text-center mb-2 text-indigo-700">PoseForm Analyzer</h1>
-  <p class="text-center text-gray-600 mb-6">AI-powered form checker for squats, deadlifts, and more</p>
+<div class="max-w-5xl mx-auto p-4 space-y-6">
+  <header class="text-center">
+    <h1 class="text-5xl font-bold text-indigo-700 mb-2">PoseForm Analyzer</h1>
+    <p class="text-gray-600">AI-powered form checker • Instant feedback • PDF reports</p>
+  </header>
 
   <!-- Exercise Selector -->
-  <div class="flex justify-center mb-4">
-    <select id="exercise" class="px-4 py-2 border border-gray-300 rounded-lg text-lg font-medium focus:ring-4 focus:ring-indigo-300">
+  <div class="flex justify-center">
+    <select id="exercise" class="px-6 py-3 text-lg font-medium border-2 border-indigo-300 rounded-xl focus:ring-4 focus:ring-indigo-300 focus:outline-none">
       <option value="squat">Squat</option>
       <option value="deadlift">Deadlift</option>
       <option value="bench">Bench Press</option>
@@ -38,56 +39,57 @@
   </div>
 
   <!-- Upload Area -->
-  <div id="uploadArea" class="w-full h-48 flex flex-col items-center justify-center text-center cursor-pointer mb-6">
-    <svg class="w-16 h-16 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <div id="uploadArea" class="w-full h-48 flex flex-col items-center justify-center text-center cursor-pointer bg-white rounded-xl shadow-lg">
+    <svg class="w-16 h-16 text-indigo-500 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"/>
     </svg>
-    <p class="text-lg font-medium">Drop photos/videos or click to upload</p>
+    <p class="text-lg font-semibold text-gray-700">Drop photos or videos here</p>
+    <p class="text-sm text-gray-500">or click to select</p>
     <input type="file" id="fileInput" multiple accept="image/*,video/*" class="hidden" />
   </div>
 
-  <!-- Camera & Controls -->
-  <div class="flex justify-center gap-3 mb-4 flex-wrap">
-    <button id="camBtn" class="px-5 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2">
+  <!-- Control Buttons -->
+  <div class="flex flex-wrap justify-center gap-3">
+    <button id="camBtn" class="px-6 py-3 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 flex items-center gap-2 shadow-md">
       Camera On
     </button>
-    <button id="analyzeBtn" class="px-5 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50" disabled>
+    <button id="analyzeBtn" class="px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 disabled:opacity-50 shadow-md" disabled>
       Analyze Frame
     </button>
-    <button id="clearBtn" class="px-5 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
+    <button id="clearBtn" class="px-6 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 shadow-md">
       Clear All
     </button>
-    <button id="downloadBtn" class="px-5 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 hidden">
+    <button id="downloadBtn" class="px-6 py-3 bg-purple-600 text-white font-bold rounded-xl hover:bg-purple-700 shadow-md hidden">
       Download PDF
     </button>
   </div>
 
   <!-- Video + Canvas -->
-  <div class="relative mx-auto max-w-3xl mb-6">
-    <video id="video" class="w-full rounded-lg shadow-lg hidden" playsinline></video>
-    <canvas id="canvas" class="w-full rounded-lg shadow-lg"></canvas>
+  <div class="relative mx-auto max-w-3xl rounded-xl overflow-hidden shadow-2xl">
+    <video id="video" class="w-full hidden mirror" playsinline></video>
+    <canvas id="canvas" class="w-full bg-gray-900"></canvas>
     <canvas id="silhouetteCanvas" class="silhouette w-full h-full"></canvas>
   </div>
 
   <!-- Reps & Score -->
-  <div class="text-center mb-4">
-    <span id="repCount" class="text-2xl font-bold text-indigo-600">Reps: 0</span>
-    <span class="mx-4 text-gray-500">|</span>
-    <span id="formScore" class="text-2xl font-bold text-green-600">Score: --</span>
+  <div class="text-center text-2xl font-bold space-x-6">
+    <span id="repCount" class="text-indigo-600">Reps: 0</span>
+    <span class="text-gray-400">|</span>
+    <span id="formScore" class="text-green-600">Score: --</span>
   </div>
 
   <!-- Feedback Panel -->
-  <div id="feedback" class="bg-white p-5 rounded-lg shadow-md max-w-3xl mx-auto hidden">
-    <h2 class="text-xl font-bold mb-3 text-indigo-700">Form Feedback</h2>
-    <div id="feedbackContent"></div>
+  <div id="feedback" class="bg-white p-6 rounded-xl shadow-lg max-w-3xl mx-auto hidden">
+    <h2 class="text-2xl font-bold text-indigo-700 mb-4">Form Feedback</h2>
+    <div id="feedbackContent" class="space-y-2"></div>
   </div>
 
   <!-- Gallery -->
-  <div id="gallery" class="flex flex-wrap gap-3 justify-center mt-6 hidden"></div>
+  <div id="gallery" class="flex flex-wrap gap-4 justify-center mt-8 hidden"></div>
 </div>
 
 <script>
-/* ---------- Global vars ---------- */
+/* ========== GLOBALS ========== */
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
 const silhouetteCanvas = document.getElementById('silhouetteCanvas');
@@ -100,38 +102,39 @@ const feedbackContent = document.getElementById('feedbackContent');
 const repCountEl = document.getElementById('repCount');
 const formScoreEl = document.getElementById('formScore');
 
-let pose, camera;
+let pose, cameraInterval = null;
 let currentImage = null;
 let currentVideo = null;
 let results = [];
 let lastResults = null;
 let repCount = 0;
 let inBottom = false;
-let currentFeedback = null;
+let objectURLs = [];
 
-/* ---------- MediaPipe setup ---------- */
+/* ========== MEDIAPIPE POSE ========== */
 const poseOptions = {
   modelComplexity: 1,
   smoothLandmarks: true,
   minDetectionConfidence: 0.7,
   minTrackingConfidence: 0.7
 };
-pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/${file}`});
+pose = new Pose({locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/${f}`});
 pose.setOptions(poseOptions);
 pose.onResults(onResults);
 
-/* ---------- UI handlers ---------- */
+/* ========== EVENT LISTENERS ========== */
 document.getElementById('uploadArea').addEventListener('click', () => document.getElementById('fileInput').click());
 document.getElementById('fileInput').addEventListener('change', e => handleFiles(e.target.files));
-document.getElementById('uploadArea').addEventListener('dragover', e => { e.preventDefault(); e.target.classList.add('border-indigo-600'); });
-document.getElementById('uploadArea').addEventListener('dragleave', e => e.target.classList.remove('border-indigo-600'));
-document.getElementById('uploadArea').addEventListener('drop', e => { e.preventDefault(); e.target.classList.remove('border-indigo-600'); handleFiles(e.dataTransfer.files); });
-document.getElementById('camBtn').addEventListener('click', startCamera);
-document.getElementById('clearBtn').addEventListener('click', clearAll);
+document.getElementById('uploadArea').addEventListener('dragover', e => { e.preventDefault(); e.target.classList.add('border-indigo-600', 'bg-indigo-50'); });
+document.getElementById('uploadArea').addEventListener('dragleave', e => e.target.classList.remove('border-indigo-600', 'bg-indigo-50'));
+document.getElementById('uploadArea').addEventListener('drop', e => { e.preventDefault(); e.target.classList.remove('border-indigo-600', 'bg-indigo-50'); handleFiles(e.dataTransfer.files); });
+
+document.getElementById('camBtn').addEventListener('click', toggleCamera);
 document.getElementById('analyzeBtn').addEventListener('click', analyzeCurrent);
+document.getElementById('clearBtn').addEventListener('click', clearAll);
 document.getElementById('downloadBtn').addEventListener('click', downloadPDF);
 
-/* ---------- File handling ---------- */
+/* ========== FILE HANDLING ========== */
 function handleFiles(files) {
   stopCamera();
   results = [];
@@ -139,6 +142,7 @@ function handleFiles(files) {
   gallery.classList.remove('hidden');
   [...files].forEach(file => {
     const url = URL.createObjectURL(file);
+    objectURLs.push(url);
     file.type.startsWith('video') ? loadVideo(url, file.name) : loadImage(url, file.name);
   });
 }
@@ -157,29 +161,28 @@ function loadVideo(url, name) {
   video.onloadedmetadata = () => {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    document.getElementById('analyzeBtn').disabled = false;
+    enableAnalyzeBtn();
   };
-  video.ontimeupdate = () => {
-    if (!currentImage) drawVideoFrame();
-  };
+  video.ontimeupdate = drawVideoFrame;
 }
 
-/* ---------- Gallery ---------- */
+/* ========== GALLERY ========== */
 function addToGallery(img, name) {
   const thumb = document.createElement('div');
-  thumb.className = 'thumb w-24 h-24 bg-gray-200 border-2 border-gray-300 rounded-lg overflow-hidden relative';
-  const c = document.createElement('canvas'); c.width = 96; c.height = 96;
-  c.getContext('2d').drawImage(img, 0, 0, 96, 96);
+  thumb.className = 'thumb w-28 h-28 bg-gray-300 border-4 border-white rounded-xl overflow-hidden shadow-md relative';
+  const c = document.createElement('canvas');
+  c.width = 112; c.height = 112;
+  c.getContext('2d').drawImage(img, 0, 0, 112, 112);
   thumb.appendChild(c);
 
   const label = document.createElement('div');
-  label.className = 'text-xs text-center truncate px-1 bg-white bg-opacity-80';
+  label.className = 'absolute bottom-0 left-0 right-0 bg-black bg-opacity-60 text-white text-xs text-center py-1 truncate px-2';
   label.textContent = name || 'photo';
   thumb.appendChild(label);
 
   thumb.onclick = () => {
-    document.querySelectorAll('.thumb').forEach(t => t.classList.remove('ring-4','ring-indigo-600'));
-    thumb.classList.add('ring-4','ring-indigo-600');
+    document.querySelectorAll('.thumb').forEach(t => t.classList.remove('ring-4', 'ring-indigo-600'));
+    thumb.classList.add('ring-4', 'ring-indigo-600');
     showImage(img);
   };
   gallery.appendChild(thumb);
@@ -190,56 +193,74 @@ function showImage(img) {
   currentVideo = null;
   video.classList.add('hidden');
   canvas.classList.remove('hidden');
-  canvas.width = img.width; canvas.height = img.height;
-  silhouetteCanvas.width = img.width; silhouetteCanvas.height = img.height;
+  canvas.width = img.width;
+  canvas.height = img.height;
+  silhouetteCanvas.width = img.width;
+  silhouetteCanvas.height = img.height;
   ctx.drawImage(img, 0, 0);
-  document.getElementById('analyzeBtn').disabled = false;
+  enableAnalyzeBtn();
   drawSilhouette(exerciseSelect.value);
-  sendToPose(img);
+  pose.send({ image: img });
 }
 
-/* ---------- Camera ---------- */
-function startCamera() {
-  stopCamera();
+/* ========== CAMERA ========== */
+function toggleCamera() {
+  if (cameraInterval) {
+    stopCamera();
+    document.getElementById('camBtn').textContent = 'Camera On';
+    return;
+  }
+  document.getElementById('camBtn').textContent = 'Camera Off';
   video.classList.remove('hidden');
   canvas.classList.add('hidden');
   navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 } })
     .then(stream => {
       video.srcObject = stream;
       video.play();
-      camera = setInterval(() => pose.send({image: video}), 100);
-      document.getElementById('analyzeBtn').disabled = false;
+      cameraInterval = setInterval(() => pose.send({ image: video }), 60);
+      enableAnalyzeBtn();
     })
-    .catch(err => alert("Camera access denied: " + err));
+    .catch(err => alert('Camera access denied: ' + err));
 }
 
 function stopCamera() {
-  if (camera) clearInterval(camera);
+  if (cameraInterval) clearInterval(cameraInterval);
+  cameraInterval = null;
   if (video.srcObject) {
     video.srcObject.getTracks().forEach(t => t.stop());
     video.srcObject = null;
   }
 }
 
-/* ---------- Clear All ---------- */
+function enableAnalyzeBtn() {
+  document.getElementById('analyzeBtn').disabled = false;
+}
+
+/* ========== CLEAR ALL ========== */
 function clearAll() {
   stopCamera();
-  video.src = ''; video.classList.add('hidden');
+  document.getElementById('camBtn').textContent = 'Camera On';
+  video.src = '';
+  video.classList.add('hidden');
   canvas.classList.add('hidden');
   silhouetteCanvas.classList.add('hidden');
-  gallery.innerHTML = ''; gallery.classList.add('hidden');
+  gallery.innerHTML = '';
+  gallery.classList.add('hidden');
   feedbackPanel.classList.add('hidden');
   document.getElementById('downloadBtn').classList.add('hidden');
   document.getElementById('analyzeBtn').disabled = true;
   results = [];
-  repCount = 0; inBottom = false;
-  repCountEl.textContent = "Reps: 0";
-  formScoreEl.textContent = "Score: --";
+  repCount = 0;
+  inBottom = false;
+  repCountEl.textContent = 'Reps: 0';
+  formScoreEl.textContent = 'Score: --';
   currentImage = null;
   currentVideo = null;
+  objectURLs.forEach(URL.revokeObjectURL);
+  objectURLs = [];
 }
 
-/* ---------- Pose results ---------- */
+/* ========== POSE RESULTS ========== */
 function onResults(res) {
   lastResults = res;
   if (!res.poseLandmarks) {
@@ -256,67 +277,64 @@ function onResults(res) {
   ctx.save();
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(res.image, 0, 0);
-  drawConnectors(ctx, res.poseLandmarks, POSE_CONNECTIONS, {color: '#00FF00', lineWidth: 4});
-  drawLandmarks(ctx, res.poseLandmarks, {color: '#FF0000', lineWidth: 2});
+  drawConnectors(ctx, res.poseLandmarks, POSE_CONNECTIONS, { color: '#00FF00', lineWidth: 5 });
+  drawLandmarks(ctx, res.poseLandmarks, { color: '#FF0000', lineWidth: 3 });
   ctx.restore();
 
   drawSilhouette(exerciseSelect.value);
 
-  const lm = res.poseLandmarks;
-  const feedback = checkForm(exerciseSelect.value, lm);
-  currentFeedback = feedback;
-
+  const fb = checkForm(exerciseSelect.value, res.poseLandmarks);
   if (video.srcObject || (currentVideo && !currentImage)) {
-    displayFeedback(feedback);
-    updateRepsAndScore(feedback, exerciseSelect.value, lm);
+    displayFeedback(fb);
+    updateRepsAndScore(fb, exerciseSelect.value, res.poseLandmarks);
   }
 }
-
-function sendToPose(img) { pose.send({image: img}); }
 
 function drawVideoFrame() {
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   if (lastResults) {
-    drawConnectors(ctx, lastResults.poseLandmarks, POSE_CONNECTIONS, {color: '#00FF00', lineWidth: 4});
-    drawLandmarks(ctx, lastResults.poseLandmarks, {color: '#FF0000', lineWidth: 2});
+    drawConnectors(ctx, lastResults.poseLandmarks, POSE_CONNECTIONS, { color: '#00FF00', lineWidth: 5 });
+    drawLandmarks(ctx, lastResults.poseLandmarks, { color: '#FF0000', lineWidth: 3 });
   }
 }
 
-/* ---------- Analysis ---------- */
+/* ========== ANALYZE CURRENT FRAME ========== */
 async function analyzeCurrent() {
   let img = currentImage;
   if (!img && video.src) {
     video.pause();
     const snap = document.createElement('canvas');
-    snap.width = video.videoWidth; snap.height = video.videoHeight;
+    snap.width = video.videoWidth;
+    snap.height = video.videoHeight;
     snap.getContext('2d').drawImage(video, 0, 0);
     img = snap;
   }
   if (!img || !lastResults?.poseLandmarks) {
-    alert('No pose detected. Try a clearer image.');
+    alert('No pose detected. Try a clearer side view.');
     return;
   }
 
   const lm = lastResults.poseLandmarks;
-  const feedback = checkForm(exerciseSelect.value, lm);
-  displayFeedback(feedback);
+  const fb = checkForm(exerciseSelect.value, lm);
+  displayFeedback(fb);
 
   const resultCanvas = document.createElement('canvas');
-  resultCanvas.width = canvas.width; resultCanvas.height = canvas.height;
+  resultCanvas.width = canvas.width;
+  resultCanvas.height = canvas.height;
   const rctx = resultCanvas.getContext('2d');
   rctx.drawImage(canvas, 0, 0);
 
   results.push({
     canvas: resultCanvas.toDataURL('image/png'),
-    feedback,
+    feedback: fb,
     exercise: exerciseSelect.selectedOptions[0].text,
-    score: calculateScore(feedback)
+    score: fb.score
   });
 
   document.getElementById('downloadBtn').classList.remove('hidden');
 }
 
-/* ---------- Helper: angle ---------- */
+/* ========== ANGLE HELPER ========== */
 function getAngle(a, b, c) {
   const rad = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
   let deg = rad * 180 / Math.PI;
@@ -325,164 +343,141 @@ function getAngle(a, b, c) {
   return deg;
 }
 
-/* ---------- Form logic ---------- */
-function checkForm(exercise, lm) {
-  const p = i => ({x: lm[i].x, y: lm[i].y});
-  const feedback = {good: [], bad: [], score: 0};
-  const totalChecks = {squat: 5, deadlift: 4, bench: 2, ohp: 3, pullup: 2, pushup: 5}[exercise];
+/* ========== FORM CHECKS ========== */
+function checkForm(ex, lm) {
+  const p = i => ({ x: lm[i].x, y: lm[i] ? lm[i].y : 0 });
+  const fb = { good: [], bad: [], score: 0 };
+  const total = { squat: 5, deadlift: 4, bench: 2, ohp: 3, pullup: 2, pushup: 5 }[ex];
+  let passed = 0;
 
-  const shoulderL = p(11), shoulderR = p(12),
-        hipL = p(23), hipR = p(24),
-        kneeL = p(25), kneeR = p(26),
-        ankleL = p(27), ankleR = p(28),
-        wristL = p(15), wristR = p(16),
-        elbowL = p(13), elbowR = p(14),
-        nose = p(0);
+  const sL = p(11), sR = p(12), hL = p(23), hR = p(24), kL = p(25), kR = p(26),
+        aL = p(27), aR = p(28), wL = p(15), wR = p(16), eL = p(13), eR = p(14), nose = p(0);
 
-  let checksPassed = 0;
-
-  switch (exercise) {
+  switch (ex) {
     case 'squat':
-      const kneeAngleL = getAngle(hipL, kneeL, ankleL);
-      const kneeAngleR = getAngle(hipR, kneeR, ankleR);
-      const backAngle = getAngle(shoulderL, hipL, kneeL);
-      const kneeSymmetry = Math.abs(kneeL.x - kneeR.x);
-      const depth = Math.min(kneeAngleL, kneeAngleR);
+      const kl = getAngle(hL, kL, aL), kr = getAngle(hR, kR, aR), back = getAngle(sL, hL, kL),
+            ksym = Math
 
-      if (depth > 80 && depth < 110) { feedback.good.push('Knee depth good'); checksPassed++; }
-      else feedback.bad.push(`Knee depth ${depth|0}°`);
-      if (backAngle > 150) { feedback.good.push('Back upright'); checksPassed++; }
-      else feedback.bad.push(`Back ${backAngle|0}°`);
-      if (kneeSymmetry < 0.08) { feedback.good.push('Knees track evenly'); checksPassed++; }
-      else feedback.bad.push('Knees caving/valgus');
-      if (hipL.y > kneeL.y + 0.1) { feedback.good.push('Hips below knees'); checksPassed++; }
-      else feedback.bad.push('Not deep enough');
+.abs(kL.x - kR.x), depth = Math.min(kl, kr);
+      if (depth > 80 && depth < 110) { fb.good.push('Knee depth good'); passed++; } else fb.bad.push(`Knee ${depth|0}°`);
+      if (back > 150) { fb.good.push('Back upright'); passed++; } else fb.bad.push(`Back ${back|0}°`);
+      if (ksym < 0.08) { fb.good.push('Knees even'); passed++; } else fb.bad.push('Knees caving');
+      if (hL.y > kL.y + 0.1) { fb.good.push('Hips below knees'); passed++; } else fb.bad.push('Not deep enough');
       break;
 
     case 'deadlift':
-      const hipHinge = Math.min(getAngle(shoulderL, hipL, kneeL), getAngle(shoulderR, hipR, kneeR));
-      const backFlat = getAngle(shoulderL, hipL, hipR);
-      if (hipHinge > 120 && hipHinge < 160) { feedback.good.push('Hip hinge good'); checksPassed++; }
-      else feedback.bad.push(`Hip hinge ${hipHinge|0}°`);
-      if (backFlat > 170) { feedback.good.push('Back neutral'); checksPassed++; }
-      else feedback.bad.push(`Back ${backFlat|0}°`);
+      const hinge = Math.min(getAngle(sL, hL, kL), getAngle(sR, hR, kR)), flat = getAngle(sL, hL, hR);
+      if (hinge > 120 && hinge < 160) { fb.good.push('Hip hinge good'); passed++; } else fb.bad.push(`Hinge ${hinge|0}°`);
+      if (flat > 170) { fb.good.push('Back neutral'); passed++; } else fb.bad.push(`Back ${flat|0}°`);
       break;
 
     case 'bench':
-      const elbowL = getAngle(shoulderL, elbowL, wristL);
-      const elbowR = getAngle(shoulderR, elbowR, wristR);
-      if (elbowL > 75 && elbowL < 105) { feedback.good.push('Left elbow ~90°'); checksPassed++; }
-      else feedback.bad.push(`Left elbow ${elbowL|0}°`);
-      if (elbowR > 75 && elbowR < 105) { feedback.good.push('Right elbow ~90°'); checksPassed++; }
-      else feedback.bad.push(`Right elbow ${elbowR|0}°`);
+      const el = getAngle(sL, eL, wL), er = getAngle(sR, eR, wR);
+      if (el > 75 && el < 105) { fb.good.push('L elbow ~90°'); passed++; } else fb.bad.push(`L ${el|0}°`);
+      if (er > 75 && er < 105) { fb.good.push('R elbow ~90°'); passed++; } else fb.bad.push(`R ${er|0}°`);
       break;
 
     case 'ohp':
-      const armL = getAngle(hipL, shoulderL, elbowL);
-      const armR = getAngle(hipR, shoulderR, elbowR);
-      const lockout = Math.min(getAngle(shoulderL, elbowL, wristL), getAngle(shoulderR, elbowR, wristR));
-      if (armL > 160 && armR > 160) { feedback.good.push('Arms vertical'); checksPassed++; }
-      else feedback.bad.push(`Arm angle ${(armL+armR)/2|0}°`);
-      if (lockout > 165) { feedback.good.push('Full lockout'); checksPassed++; }
-      else feedback.bad.push(`Lockout ${lockout|0}°`);
+      const al = getAngle(hL, sL, eL), ar = getAngle(hR, sR, eR), lock = Math.min(getAngle(sL, eL, wL), getAngle(sR, eR, wR));
+      if (al > 160 && ar > 160) { fb.good.push('Arms vertical'); passed++; } else fb.bad.push(`Arm ${(al+ar)/2|0}°`);
+      if (lock > 165) { fb.good.push('Full lockout'); passed++; } else fb.bad.push(`Lock ${lock|0}°`);
       break;
 
     case 'pullup':
-      const chinOver = nose.y < Math.min(shoulderL.y, shoulderR.y);
-      const gripWidth = Math.abs(wristL.x - wristR.x);
-      if (chinOver) { feedback.good.push('Chin over bar'); checksPassed++; }
-      else feedback.bad.push('Chin not over bar');
-      if (gripWidth > 0.4) { feedback.good.push('Wide grip'); checksPassed++; }
-      else feedback.bad.push('Grip too narrow');
+      const chin = nose.y < Math.min(sL.y, sR.y), grip = Math.abs(wL.x - wR.x);
+      if (chin) { fb.good.push('Chin over bar'); passed++; } else fb.bad.push('Chin not over');
+      if (grip > 0.4) { fb.good.push('Wide grip'); passed++; } else fb.bad.push('Grip narrow');
       break;
 
     case 'pushup':
-      const bodyAngle = (getAngle(ankleL, hipL, shoulderL) + getAngle(ankleR, hipR, shoulderR)) / 2;
-      const elbowAngle = (getAngle(shoulderL, elbowL, wristL) + getAngle(shoulderR, elbowR, wristR)) / 2;
-      const lockout = Math.min(getAngle(shoulderL, elbowL, wristL), getAngle(shoulderR, elbowR, wristR));
-      if (bodyAngle > 165) { feedback.good.push('Body straight'); checksPassed++; }
-      else feedback.bad.push(`Body sag ${bodyAngle|0}°`);
-      if (elbowAngle > 75 && elbowAngle < 105) { feedback.good.push('Elbows ~90°'); checksPassed++; }
-      else feedback.bad.push(`Elbow ${elbowAngle|0}°`);
-      if (lockout > 160) { feedback.good.push('Full lockout'); checksPassed++; }
-      else feedback.bad.push(`Lockout ${lockout|0}°`);
+      const body = (getAngle(aL, hL, sL) + getAngle(aR, hR, sR)) / 2,
+            elbow = (getAngle(sL, eL, wL) + getAngle(sR, eR, wR)) / 2,
+            lock = Math.min(getAngle(sL, eL, wL), getAngle(sR, eR, wR));
+      if (body > 165) { fb.good.push('Body straight'); passed++; } else fb.bad.push(`Body ${body|0}°`);
+      if (elbow > 75 && elbow < 105) { fb.good.push('Elbows ~90°'); passed++; } else fb.bad.push(`Elbow ${elbow|0}°`);
+      if (lock > 160) { fb.good.push('Full lockout'); passed++; } else fb.bad.push(`Lock ${lock|0}°`);
       break;
   }
 
-  feedback.score = Math.round((checksPassed / totalChecks) * 100);
-  return feedback;
+  fb.score = Math.round((passed / total) * 100);
+  return fb;
 }
 
-/* ---------- Reps & Score ---------- */
-function updateRepsAndScore(fb, exercise, lm) {
-  const p = i => ({x: lm[i].x, y: lm[i].y});
-  const kneeAngle = (getAngle(p(23), p(25), p(27)) + getAngle(p(24), p(26), p(28))) / 2;
+/* ========== REPS & SCORE ========== */
+function updateRepsAndScore(fb, ex, lm) {
+  const p = i => ({ x: lm[i].x, y: lm[i].y });
+  const knee = (getAngle(p(23), p(25), p(27)) + getAngle(p(24), p(26), p(28))) / 2;
 
-  if (exercise === 'squat') {
-    if (kneeAngle < 95 && !inBottom) { inBottom = true; }
-    if (kneeAngle > 110 && inBottom) { repCount++; inBottom = false; repCountEl.textContent = `Reps: ${repCount}`; }
+  if (ex === 'squat') {
+    if (knee < 95 && !inBottom) inBottom = true;
+    if (knee > 110 && inBottom) { repCount++; inBottom = false; repCountEl.textContent = `Reps: ${repCount}`; }
   }
 
   formScoreEl.textContent = `Score: ${fb.score}`;
 }
 
-/* ---------- Display feedback ---------- */
+/* ========== FEEDBACK UI ========== */
 function displayFeedback(fb) {
   feedbackPanel.classList.remove('hidden');
-  let html = `<div class="text-2xl font-bold mb-2 text-indigo-700">${fb.score}/100</div>`;
-  fb.good.forEach(g => html += `<p class="text-green-600 font-medium">Checkmark ${g}</p>`);
-  fb.bad.forEach(b => html += `<p class="text-red-600 font-medium">Cross ${b}</p>`);
+  let html = `<div class="text-3xl font-bold mb-3 text-indigo-700">${fb.score}/100</div>`;
+  fb.good.forEach(g => html += `<p class="text-green-600 font-semibold">Checkmark ${g}</p>`);
+  fb.bad.forEach(b => html += `<p class="text-red-600 font-semibold">Cross ${b}</p>`);
   feedbackContent.innerHTML = html;
 }
 
-function calculateScore(fb) { return fb.score; }
-
-/* ---------- Silhouette Guide ---------- */
-function drawSilhouette(exercise) {
+/* ========== SILHOUETTE GUIDE ========== */
+function drawSilhouette(ex) {
   sctx.clearRect(0, 0, silhouetteCanvas.width, silhouetteCanvas.height);
-  sctx.strokeStyle = '#6366f1'; sctx.lineWidth = 6; sctx.globalAlpha = 0.4;
+  sctx.strokeStyle = '#4F46E5';
+  sctx.lineWidth = 8;
+  sctx.globalAlpha = 0.5;
 
-  const w = silhouetteCanvas.width, h = silhouetteCanvas.height;
-  const cx = w * 0.5, cy = h * 0.5;
+  const w = silhouetteCanvas.width, h = silhouetteCanvas.height, cx = w * 0.5;
 
-  switch (exercise) {
+  switch (ex) {
     case 'squat':
       sctx.beginPath();
-      sctx.moveTo(cx*0.9, cy*0.3); sctx.lineTo(cx*0.9, cy*0.6);
-      sctx.lineTo(cx*0.7, cy*0.9); sctx.lineTo(cx*0.7, cy*1.1);
-      sctx.moveTo(cx*1.1, cy*0.3); sctx.lineTo(cx*1.1, cy*0.6);
-      sctx.lineTo(cx*1.3, cy*0.9); sctx.lineTo(cx*1.3, cy*1.1);
+      sctx.moveTo(cx * 0.9, h * 0.3); sctx.lineTo(cx * 0.9, h * 0.6);
+      sctx.lineTo(cx * 0.7, h * 0.9); sctx.lineTo(cx * 0.7, h * 1.1);
+      sctx.moveTo(cx * 1.1, h * 0.3); sctx.lineTo(cx * 1.1, h * 0.6);
+      sctx.lineTo(cx * 1.3, h * 0.9); sctx.lineTo(cx * 1.3, h * 1.1);
       sctx.stroke();
       break;
-    // Add more later
+    case 'deadlift':
+      sctx.beginPath();
+      sctx.moveTo(cx * 0.9, h * 0.3); sctx.lineTo(cx * 0.9, h * 0.5);
+      sctx.lineTo(cx * 0.7, h * 0.7); sctx.lineTo(cx * 0.7, h * 1.0);
+      sctx.moveTo(cx * 1.1, h * 0.3); sctx.lineTo(cx * 1.1, h * 0.5);
+      sctx.lineTo(cx * 1.3, h * 0.7); sctx.lineTo(cx * 1.3, h * 1.0);
+      sctx.stroke();
+      break;
+    // Add more as needed
   }
 }
 
-/* ---------- PDF Report ---------- */
+/* ========== PDF EXPORT ========== */
 async function downloadPDF() {
   const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF();
+  const pdf = new jsPDF('p', 'mm', 'a4');
   let y = 20;
 
   for (let i = 0; i < results.length; i++) {
     if (i > 0) pdf.addPage();
     const img = results[i].canvas;
-    const width = 180;
-    const ratio = results[i].canvas.height / results[i].canvas.width;
-    const height = width * ratio;
-    pdf.addImage(img, 'PNG', 15, y, width, height);
-    y += height + 10;
-    pdf.setFontSize(14);
-    pdf.text(`Exercise: ${results[i].exercise} | Score: ${results[i].score}/100`, 15, y);
+    const imgWidth = 180;
+    const imgHeight = (canvas.height * imgWidth / canvas.width);
+    pdf.addImage(img, 'PNG', 15, y, imgWidth, imgHeight);
+    y += imgHeight + 10;
+    pdf.setFontSize(16);
+    pdf.text(`${results[i].exercise} • Score: ${results[i].score}/100`, 15, y);
     y += 10;
     pdf.setFontSize(12);
-    results[i].feedback.good.forEach(g => { pdf.setTextColor(0,128,0); pdf.text(`Checkmark ${g}`, 20, y); y += 7; });
-    results[i].feedback.bad.forEach(b => { pdf.setTextColor(255,0,0); pdf.text(`Cross ${b}`, 20, y); y += 7; });
+    results[i].feedback.good.forEach(g => { pdf.setTextColor(0, 150, 0); pdf.text(`Checkmark ${g}`, 20, y); y += 7; });
+    results[i].feedback.bad.forEach(b => { pdf.setTextColor(200, 0, 0); pdf.text(`Cross ${b}`, 20, y); y += 7; });
     y = 20;
   }
-  pdf.save(`form-report-${Date.now()}.pdf`);
+  pdf.save(`PoseForm-Report-${new Date().toISOString().slice(0,10)}.pdf`);
 }
 </script>
-
 </body>
 </html>
