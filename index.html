@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Live Squat Form Analyzer</title>
+  <title>Squat Form Checker – Upload or Webcam</title>
 
   <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -13,27 +13,48 @@
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.10.14"></script>
 
   <style>
+    .dragover { @apply border-blue-500 bg-blue-50; }
     #outputCanvas { max-width:100%; border-radius:.5rem; }
   </style>
 </head>
 
 <body class="min-h-screen flex flex-col">
   <header class="bg-indigo-600 text-white p-4 shadow-md">
-    <h1 class="text-2xl font-bold text-center">Live Squat Form Analyzer</h1>
-    <p class="text-center opacity-90 text-sm">Real‑time feedback – webcam only</p>
+    <h1 class="text-2xl font-bold text-center">Squat Form Checker</h1>
+    <p class="text-center opacity-90 text-sm">Upload photo/video or use webcam – live AI analysis</p>
   </header>
 
   <main class="flex-1 container mx-auto p-6 max-w-5xl" x-data="app()">
-    <!-- ==== Controls ==== -->
+    <!-- ==== Upload Zone ==== -->
+    <div class="border-4 border-dashed rounded-xl p-8 text-center mb-6"
+         :class="dragging ? 'dragover' : 'border-gray-300'"
+         @dragover.prevent="dragging=true"
+         @dragleave.prevent="dragging=false"
+         @drop.prevent="handleDrop">
+      <input type="file" id="fileInput" class="hidden" accept="image/*,video/*" @change="handleFile">
+      <label for="fileInput" class="cursor-pointer block">
+        <svg class="mx-auto h-16 w-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/>
+        </svg>
+        <p class="mt-2 text-lg font-medium">Drop file or <span class="text-indigo-600 underline">click to browse</span></p>
+        <p class="text-sm text-gray-500">Photo or Video (≤ 100 MB)</p>
+      </label>
+    </div>
+
+    <!-- ==== Action Buttons ==== -->
     <div class="flex flex-wrap gap-3 justify-center mb-6">
-      <button @click="startWebcam()"
-              :disabled="webcamActive"
+      <button @click="analyzeUpload()" :disabled="!fileReady || processing"
+              class="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+        Analyze Upload
+      </button>
+
+      <button @click="startWebcam()" :disabled="webcamActive || processing"
               class="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50">
         Start Webcam
       </button>
 
-      <button @click="stopWebcam()"
-              :disabled="!webcamActive"
+      <button @click="stopWebcam()" :disabled="!webcamActive"
               class="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50">
         Stop Webcam
       </button>
@@ -43,20 +64,33 @@
       </button>
     </div>
 
-    <!-- ==== Video + Canvas ==== -->
-    <div class="grid md:grid-cols-2 gap-6 mb-6">
+    <!-- ==== Progress ==== -->
+    <div x-show="processing" class="mb-6 text-center">
+      <div class="bg-gray-200 h-3 rounded-full overflow-hidden max-w-md mx-auto">
+        <div class="bg-indigo-600 h-full transition-all" :style="`width:${progress}%`"></div>
+      </div>
+      <p class="mt-2 text-sm" x-text="progressMessage"></p>
+    </div>
+
+    <!-- ==== Media + Canvas ==== -->
+    <div class="grid md:grid-cols-2 gap-6 mb-6" x-show="mediaReady">
       <div>
-        <video id="webcamVideo" class="max-w-full rounded-lg shadow hidden" autoplay playsinline></video>
+        <template x-if="isImage">
+          <img :src="mediaUrl" class="max-w-full rounded-lg shadow">
+        </template>
+        <template x-if="!isImage">
+          <video :src="mediaUrl" controls class="max-w-full rounded-lg shadow" x-ref="videoElement"></video>
+        </template>
       </div>
       <div>
         <canvas id="outputCanvas" class="hidden w-full bg-black"></canvas>
-        <p x-show="!hasPose && webcamActive" class="text-center text-gray-500 mt-4">Looking for pose…</p>
+        <p x-show="!hasPose && !processing" class="text-center text-gray-500 mt-4">No pose detected…</p>
       </div>
     </div>
 
     <!-- ==== Live Analysis ==== -->
-    <div x-show="webcamActive && result" class="bg-white p-6 rounded-lg shadow-lg">
-      <h2 class="text-xl font-semibold mb-4">Live Squat Analysis</h2>
+    <div x-show="result" class="bg-white p-6 rounded-lg shadow-lg">
+      <h2 class="text-xl font-semibold mb-4" x-text="webcamActive ? 'Live Squat Analysis' : 'Analysis Result'"></h2>
 
       <div class="grid grid-cols-3 gap-4 mb-4 text-center">
         <div class="p-3 bg-green-100 rounded">
@@ -92,28 +126,77 @@
   <script>
     function app() {
       return {
+        // UI
+        dragging: false,
+        processing: false,
+        progress: 0,
+        progressMessage: '',
+        fileReady: false,
+        isImage: false,
+        mediaUrl: '',
+        mediaReady: false,
         webcamActive: false,
         hasPose: false,
         result: null,
+
+        // MediaPipe
         pose: null,
         camera: null,
         canvas: null,
         ctx: null,
-        video: null,
+        videoElement: null,
 
         // -------------------------------------------------
-        async startWebcam() {
-          this.clearAll();
-          this.webcamActive = true;
+        handleDrop(e) {
+          this.dragging = false;
+          const f = e.dataTransfer.files[0];
+          if (f) this.setFile(f);
+        },
+        handleFile(e) {
+          const f = e.target.files[0];
+          if (f) this.setFile(f);
+        },
 
-          this.video = document.getElementById('webcamVideo');
-          this.video.classList.remove('hidden');
+        setFile(file) {
+          this.stopWebcam();
+          this.fileReady = true;
+          this.isImage = file.type.startsWith('image');
+          this.mediaUrl = URL.createObjectURL(file);
+          this.mediaReady = true;
+          this.result = null;
+          this.$nextTick(() => this.setupCanvas());
+        },
 
+        // -------------------------------------------------
+        clearAll() {
+          this.stopWebcam();
+          this.processing = false;
+          this.progress = 0;
+          this.fileReady = false;
+          this.mediaReady = false;
+          this.hasPose = false;
+          this.result = null;
+          if (this.canvas) this.ctx.clearRect(0,0,this.canvas.width,this.canvas.height);
+          document.getElementById('fileInput').value = '';
+        },
+
+        setupCanvas() {
           this.canvas = document.getElementById('outputCanvas');
-          this.canvas.classList.remove('hidden');
           this.ctx = this.canvas.getContext('2d');
+          if (this.isImage) {
+            const img = new Image();
+            img.src = this.mediaUrl;
+            img.onload = () => {
+              this.canvas.width = img.width;
+              this.canvas.height = img.height;
+              this.canvas.classList.remove('hidden');
+            };
+          }
+        },
 
-          // init MediaPipe
+        // -------------------------------------------------
+        initPose() {
+          if (this.pose) return;
           this.pose = new Pose({
             locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.10.14/${f}`
           });
@@ -124,10 +207,66 @@
             minTrackingConfidence: 0.5
           });
           this.pose.onResults(r => this.onPoseResults(r));
+        },
 
-          this.camera = new Camera(this.video, {
+        // -------------------------------------------------
+        async analyzeUpload() {
+          if (!this.fileReady) return;
+          this.processing = true;
+          this.progress = 0;
+          this.progressMessage = 'Loading AI model…';
+          this.initPose();
+
+          if (this.isImage) {
+            await this.analyzeImage();
+          } else {
+            await this.analyzeVideo();
+          }
+          this.processing = false;
+        },
+
+        async analyzeImage() {
+          const img = new Image();
+          img.src = this.mediaUrl;
+          await img.decode();
+          this.progress = 60;
+          this.progressMessage = 'Detecting pose…';
+          await this.pose.send({image: img});
+        },
+
+        async analyzeVideo() {
+          this.videoElement = this.$refs.videoElement;
+          await new Promise(r => { this.videoElement.onloadedmetadata = r; });
+          const mid = this.videoElement.duration / 2;
+          this.videoElement.currentTime = mid;
+          await new Promise(r => { this.videoElement.onseeked = r; });
+          this.progress = 70;
+          this.progressMessage = 'Detecting pose in middle frame…';
+          await this.pose.send({image: this.videoElement});
+        },
+
+        // -------------------------------------------------
+        async startWebcam() {
+          this.clearAll();
+          this.webcamActive = true;
+          this.mediaReady = true;
+
+          const video = document.createElement('video');
+          video.id = 'webcamVideo';
+          video.autoplay = true;
+          video.playsInline = true;
+          video.classList.remove('hidden');
+          document.querySelector('.grid.md\\:grid-cols-2 > div:first-child').appendChild(video);
+
+          this.canvas = document.getElementById('outputCanvas');
+          this.canvas.classList.remove('hidden');
+          this.ctx = this.canvas.getContext('2d');
+
+          this.initPose();
+
+          this.camera = new Camera(video, {
             onFrame: async () => {
-              await this.pose.send({image: this.video});
+              await this.pose.send({image: video});
             },
             width: 640,
             height: 480
@@ -140,43 +279,34 @@
           this.webcamActive = false;
           this.hasPose = false;
           this.result = null;
-        },
-
-        clearAll() {
-          this.stopWebcam();
-          if (this.video) this.video.srcObject = null;
-          if (this.canvas) this.ctx.clearRect(0,0,this.canvas.width,this.canvas.height);
+          const vid = document.getElementById('webcamVideo');
+          if (vid) vid.remove();
         },
 
         // -------------------------------------------------
         onPoseResults(results) {
           if (!this.canvas || !this.ctx) return;
 
-          // resize canvas to video size
-          if (this.video.videoWidth) {
-            this.canvas.width = this.video.videoWidth;
-            this.canvas.height = this.video.videoHeight;
+          const img = results.image;
+          if (img) {
+            this.canvas.width = img.width || img.videoWidth;
+            this.canvas.height = img.height || img.videoHeight;
+            this.ctx.drawImage(img, 0, 0, this.canvas.width, this.canvas.height);
           }
-
-          this.ctx.save();
-          this.ctx.clearRect(0,0,this.canvas.width,this.canvas.height);
-          this.ctx.drawImage(results.image, 0,0,this.canvas.width,this.canvas.height);
 
           if (results.poseLandmarks) {
             this.hasPose = true;
             this.drawSkeleton(results.poseLandmarks);
-            this.analyzeSquatLive(results.poseLandmarks);
+            this.analyzeSquat(results.poseLandmarks);
           } else {
             this.hasPose = false;
           }
-          this.ctx.restore();
         },
 
         drawSkeleton(landmarks) {
           const connections = [
-            [11,13],[13,15],[12,14],[14,16], // arms
-            [11,12],[23,24],                 // hips
-            [23,25],[25,27],[24,26],[26,28]  // legs
+            [11,13],[13,15],[12,14],[14,16],[11,12],[23,24],
+            [23,25],[25,27],[24,26],[26,28]
           ].map(([a,b]) => [landmarks[a], landmarks[b]]);
 
           this.ctx.strokeStyle = '#10b981';
@@ -201,66 +331,53 @@
         },
 
         // -------------------------------------------------
-        analyzeSquatLive(landmarks) {
+        analyzeSquat(landmarks) {
           const lm = i => ({x:landmarks[i].x, y:landmarks[i].y, v:landmarks[i].visibility});
 
-          const leftHip = lm(23), rightHip = lm(24);
-          const leftKnee = lm(25), rightKnee = lm(26);
-          const leftAnkle = lm(27), rightAnkle = lm(28);
-          const leftShoulder = lm(11), rightShoulder = lm(12);
+          const lHip = lm(23), rHip = lm(24);
+          const lKnee = lm(25), rKnee = lm(26);
+          const lAnkle = lm(27), rAnkle = lm(28);
+          const lShoulder = lm(11), rShoulder = lm(12);
 
-          // visibility check
-          if ([leftHip,rightHip,leftKnee,rightKnee,leftAnkle,rightAnkle,
-               leftShoulder,rightShoulder].some(p=>p.v<.5)) {
+          if ([lHip,rHip,lKnee,rKnee,lAnkle,rAnkle,lShoulder,rShoulder].some(p=>p.v<.5)) {
             this.result = {exercise:"Squat (partial)", score:0, depth:0, backAngle:0, kneeDrift:0,
-                           feedback:"<p class='text-red-700'>Not all landmarks visible – face the camera.</p>"};
+                           feedback:"<p class='text-red-700'>Not all body parts visible.</p>"};
             return;
           }
 
-          // Helper math
           const vec = (a,b) => ({x:b.x-a.x, y:b.y-a.y});
           const dot = (a,b) => a.x*b.x + a.y*b.y;
           const norm = v => Math.sqrt(v.x*v.x + v.y*v.y);
           const angleDeg = (a,b) => Math.acos(Math.max(-1,Math.min(1, dot(a,b)/(norm(a)*norm(b)+1e-6)))) * 180/Math.PI;
 
-          // --- Depth (hip height) ---
-          const hipY = (leftHip.y + rightHip.y) / 2;
-          const depthPct = Math.round((1 - hipY) * 100); // 0% = standing, 100% = full squat
+          const hipY = (lHip.y + rHip.y) / 2;
+          const depthPct = Math.round((1 - hipY) * 100);
 
-          // --- Back angle (torso vs vertical) ---
-          const torsoVec = vec(leftHip, leftShoulder);
+          const torsoVec = vec(lHip, lShoulder);
           const backAngle = Math.round(angleDeg(torsoVec, {x:0,y:-1}));
 
-          // --- Knee drift (horizontal distance knee‑ankle) ---
-          const leftDrift = Math.abs(leftKnee.x - leftAnkle.x);
-          const rightDrift = Math.abs(rightKnee.x - rightAnkle.x);
-          const kneeDriftCm = Math.round(((leftDrift + rightDrift)/2) * 100); // rough pixel‑to‑cm
+          const lDrift = Math.abs(lKnee.x - lAnkle.x);
+          const rDrift = Math.abs(rKnee.x - rAnkle.x);
+          const kneeDriftCm = Math.round(((lDrift + rDrift)/2) * 100);
 
-          // --- Symmetry (hip height diff) ---
-          const hipDiff = Math.abs(leftHip.y - rightHip.y);
+          const hipDiff = Math.abs(lHip.y - rHip.y);
           const symmetryOk = hipDiff < 0.03;
 
-          // --- Scoring ---
           let score = 100;
           const issues = [];
 
-          // Depth
-          if (depthPct < 40) { issues.push(`Shallow squat (${depthPct}% depth). Aim for ≥70%.`); score -= 30; }
-          else if (depthPct < 70) { issues.push(`Good depth (${depthPct}%), push a bit lower.`); score -= 10; }
+          if (depthPct < 40) { issues.push(`Shallow squat (${depthPct}% depth). Go deeper!`); score -= 30; }
+          else if (depthPct < 70) { issues.push(`Good depth (${depthPct}%). Push lower if possible.`); score -= 10; }
 
-          // Back
           if (backAngle > 30) { issues.push(`Back leaning ${backAngle}° – stay upright.`); score -= (backAngle-20)*1.5; }
           else if (backAngle > 15) { issues.push(`Slight lean (${backAngle}°). Keep torso vertical.`); score -= 5; }
 
-          // Knee drift
           if (kneeDriftCm > 8) { issues.push(`Knees drift ${kneeDriftCm} cm forward – track over toes.`); score -= 20; }
 
-          // Symmetry
-          if (!symmetryOk) { issues.push(`Uneven hips – keep weight balanced.`); score -= 15; }
+          if (!symmetryOk) { issues.push(`Uneven hips – balance weight.`); score -= 15; }
 
           score = Math.max(0, Math.min(100, Math.round(score)));
 
-          // Feedback HTML
           const feedback = issues.length
             ? `<ul class="list-disc pl-5 space-y-1 text-red-700">${issues.map(i=>`<li>${i}</li>`).join('')}</ul>`
             : `<p class="text-green-700 font-semibold">Perfect form! Keep it up.</p>`;
