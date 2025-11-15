@@ -35,7 +35,7 @@
     height: 100%;
     background: #6677ff;
     width: 0%;
-    transition: width 0.3s ease;
+    transition: width 0.15s linear;
   }
   button {
     padding: 0.5rem 1.2rem;
@@ -55,7 +55,7 @@
   }
   #report {
     margin-top: 2rem;
-    max-width: 600px;
+    max-width: 700px;
     margin-left: auto;
     margin-right: auto;
     background: #fff;
@@ -63,17 +63,18 @@
     padding: 1rem;
     box-shadow: 0 0 8px #ccc;
     text-align: left;
+    line-height: 1.5rem;
   }
 </style>
 </head>
 <body>
 
 <h1>SquatSense AI</h1>
-<p>Upload an image or video of your squat and get a full form analysis report.</p>
+<p>Upload an image or video of your squat and get a form-correction analysis.</p>
 
 <div id="upload-area" tabindex="0">
   ⬆️ Drop photo or video here or click to browse
-  <input type="file" id="file-input" accept="image/*,video/*" style="display:none" />
+  <input type="file" id="file-input" accept="image/*" style="display:none" />
 </div>
 
 <div>
@@ -125,58 +126,63 @@
     if (!selectedFile) return;
     analyzeBtn.disabled = true;
     clearBtn.disabled = true;
-    reportDiv.innerHTML = `<p>Analyzing ${selectedFile.name}...</p>`;
-    simulateAnalysis(selectedFile);
+    reportDiv.innerHTML = `<p>Analyzing ${selectedFile.name}…</p>`;
+    runProgressBar(selectedFile);
   });
 
-  // Simulated progress bar animation
-  function simulateAnalysis(file) {
+  // -----------------------
+  // Smooth Progress Bar
+  // -----------------------
+  function runProgressBar(file) {
     let progress = 0;
-    progressBarFill.style.width = '0%';
+    progressBarFill.style.width = "0%";
 
     const interval = setInterval(() => {
+      progress += 2.5; // smooth increment
       if (progress >= 100) {
+        progress = 100;
         clearInterval(interval);
-        showReport(file); // RUN REAL AI ANALYSIS
-        analyzeBtn.disabled = false;
-        clearBtn.disabled = false;
-        return;
+        showReport(file);
       }
-      progress += Math.random() * 15;
-      if (progress > 100) progress = 100;
-      progressBarFill.style.width = `${progress.toFixed(1)}%`;
-    }, 500);
+      progressBarFill.style.width = progress + "%";
+    }, 80); // smooth update speed
   }
 
   // -----------------------
   // REAL AI ANALYSIS
   // -----------------------
   async function showReport(file) {
-    reportDiv.innerHTML = "<p>Generating real AI analysis...</p>";
+    reportDiv.innerHTML = "<p>Generating detailed AI squat analysis…</p>";
 
     const base64 = await fileToBase64(file);
 
     try {
       const response = await fetch("YOUR_BACKEND_ENDPOINT_HERE", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image: base64 })
       });
 
       const data = await response.json();
 
+      // Detailed formatting
+      const formatted = data.analysis
+        .replace(/\n\n/g, "<br><br>")
+        .replace(/\n/g, "<br>");
+
       reportDiv.innerHTML = `
-        <h2>Analysis Report for ${file.name}</h2>
-        <p>${data.analysis.replace(/\n/g, "<br>")}</p>
+        <h2>AI Form Analysis: ${file.name}</h2>
+        <div>${formatted}</div>
+        <hr>
+        <p><strong>Tip:</strong> Re-upload from new angles (side / 45° / rear) for deeper correction.</p>
       `;
+
     } catch (err) {
-      reportDiv.innerHTML = "<p style='color:red;'>Error: Could not connect to AI backend.</p>";
+      reportDiv.innerHTML = "<p style='color:red;'>❌ ERROR: Could not reach AI backend.</p>";
     }
   }
 
-  // Convert image → Base64
+  // Convert file to Base64
   function fileToBase64(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
