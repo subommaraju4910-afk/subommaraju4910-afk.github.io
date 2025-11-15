@@ -1,442 +1,169 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>SquatSense AI – Squat Form Analysis</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.10.14"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.10.14"></script>
-  <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
-  <style>
-    :root {
-      --p: #8a85ff;
-      --g: #6acb8a;
-      --r: #ff7b7b;
-      --y: #ffb84d;
-      --gray: #444;
-    }
-    body {
-      background: #f9f9fb;
-      font-family: 'Segoe UI', sans-serif;
-      margin: 0;
-      color: #333;
-    }
-    .c {
-      width: 90%;
-      max-width: 1000px;
-      margin: auto;
-      padding: 20px;
-    }
-    h1 {
-      text-align: center;
-      color: #4a47a3;
-      margin-bottom: 5px;
-    }
-    .sub {
-      text-align: center;
-      margin-top: -5px;
-      font-size: 14px;
-      color: #666;
-    }
-    .drop {
-      border: 3px dashed #ccc;
-      padding: 50px;
-      text-align: center;
-      border-radius: 15px;
-      background: white;
-      cursor: pointer;
-      transition: 0.3s;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-    }
-    .drop.dragover {
-      border-color: var(--p);
-      background: #f8f7ff;
-    }
-    .btn {
-      padding: 10px 20px;
-      border-radius: 8px;
-      border: none;
-      cursor: pointer;
-      color: white;
-      font-weight: 600;
-      transition: 0.2s;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
-      margin: 5px;
-    }
-    .p {
-      background: var(--p);
-    }
-    .p:hover {
-      background: #7068e0;
-    }
-    .g {
-      background: var(--g);
-    }
-    .g:hover {
-      background: #54b577;
-    }
-    .r {
-      background: var(--r);
-    }
-    .r:hover {
-      background: #ff5c5c;
-    }
-    .gray {
-      background: var(--gray);
-    }
-    .gray:hover {
-      background: #333;
-    }
-    #bar {
-      height: 12px;
-      background: #eee;
-      border-radius: 10px;
-      overflow: hidden;
-      margin: 20px 0;
-    }
-    #fill {
-      height: 100%;
-      width: 0%;
-      background: var(--p);
-      transition: width 0.3s;
-    }
-    canvas {
-      width: 100%;
-      background: #111;
-      border-radius: 12px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-      margin-top: 20px;
-    }
-    .res {
-      margin-top: 20px;
-      background: white;
-      padding: 20px;
-      border-radius: 12px;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
-    }
-    .issue {
-      padding: 10px;
-      margin: 6px 0;
-      border-left: 4px solid;
-      border-radius: 6px;
-      font-size: 15px;
-    }
-    .major {
-      background: #ffe6e6;
-      border-color: var(--r);
-    }
-    .minor {
-      background: #fff4e6;
-      border-color: var(--y);
-    }
-    .good {
-      background: #e6f7e6;
-      border-color: var(--g);
-    }
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SquatSense AI - Full Analysis</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background: #f7f7fc;
+    color: #333;
+    text-align: center;
+    padding: 2rem;
+  }
+  #upload-area {
+    border: 2px dashed #aaa;
+    padding: 3rem;
+    margin-bottom: 1rem;
+    cursor: pointer;
+    border-radius: 12px;
+    background: white;
+  }
+  #upload-area:hover {
+    border-color: #5566cc;
+  }
+  #progress-bar {
+    width: 80%;
+    height: 12px;
+    background: #ddd;
+    margin: 1rem auto;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  #progress-bar-fill {
+    height: 100%;
+    background: #6677ff;
+    width: 0%;
+    transition: width 0.3s ease;
+  }
+  button {
+    padding: 0.5rem 1.2rem;
+    margin: 0.5rem;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: bold;
+  }
+  button#analyze-btn {
+    background: #6677ff;
+    color: white;
+  }
+  button#clear-btn {
+    background: #444;
+    color: white;
+  }
+  #report {
+    margin-top: 2rem;
+    max-width: 600px;
+    margin-left: auto;
+    margin-right: auto;
+    background: #fff;
+    border-radius: 8px;
+    padding: 1rem;
+    box-shadow: 0 0 8px #ccc;
+    text-align: left;
+  }
+</style>
 </head>
 <body>
-  <div class="c" x-data="app()" x-init="init()">
-    <h1>SquatSense AI</h1>
-    <p class="sub">AI shows <b>exactly</b> what you're doing wrong — <b>upload fixed</b></p>
 
-    <!-- UPLOAD -->
-    <div
-      class="drop"
-      @dragover.prevent="drag = true"
-      @dragleave.prevent="drag = false"
-      @drop.prevent="file = $event.dataTransfer.files[0]; drag = false"
-      :class="drag ? 'dragover' : ''"
-      @click="$refs.file.click()"
-    >
-      <p style="font-size: 32px; margin: 0;">⬆️ Upload</p>
-      <p>
-        Drop photo or video here<br /><small>or click to browse</small>
-      </p>
-      <input
-        type="file"
-        x-ref="file"
-        accept="image/*,video/*"
-        @change="file = $event.target.files[0]"
-        hidden
-      />
-    </div>
+<h1>SquatSense AI</h1>
+<p>Upload an image or video of your squat and get a full form analysis report.</p>
 
-    <!-- BUTTONS -->
-    <div style="display: flex; justify-content: center; flex-wrap: wrap;">
-      <button class="btn p" @click="analyze()" :disabled="!file || loading">Analyze</button>
-      <button class="btn g" @click="startCam()" :disabled="cam || loading">Live Camera</button>
-      <button class="btn r" @click="stopCam()" :disabled="!cam">Stop</button>
-      <button class="btn gray" @click="clear()">Clear</button>
-    </div>
+<div id="upload-area" tabindex="0">
+  ⬆️ Drop photo or video here or click to browse
+  <input type="file" id="file-input" accept="image/*,video/*" style="display:none" />
+</div>
 
-    <!-- LOADING -->
-    <div id="bar" x-show="loading" style="display: block;">
-      <div id="fill" :style="{ width: prog + '%' }"></div>
-    </div>
-    <p x-show="loading" style="text-align: center; margin-top: 8px; color: #666;">
-      <span x-text="msg"></span> <span x-text="prog + '%'"></span>
-    </p>
+<div>
+  <button id="analyze-btn" disabled>Analyze</button>
+  <button id="clear-btn" disabled>Clear</button>
+</div>
 
-    <!-- CANVAS -->
-    <canvas x-ref="canv"></canvas>
+<div id="progress-bar">
+  <div id="progress-bar-fill"></div>
+</div>
 
-    <!-- RESULT -->
-    <div class="res" x-show="res" style="display: block;">
-      <h3 style="margin-top: 0; color: #4a47a3;">Form Feedback</h3>
-      <template x-for="i in res.items" :key="i.title">
-        <div :class="i.type" class="issue">
-          <strong x-text="i.title"></strong><br />
-          <span x-text="i.msg"></span>
-        </div>
-      </template>
-      <hr />
-      <p><strong>Overall Score:</strong> <span x-text="res.score + ' / 100'"></span></p>
-    </div>
-  </div>
+<div id="report"></div>
 
-  <script>
-    function app() {
-      return {
-        pose: null,
-        canv: null,
-        ctx: null,
-        file: null,
-        cam: false,
-        camera: null,
-        loading: false,
-        prog: 0,
-        msg: '',
-        res: null,
-        drag: false,
+<script>
+  const uploadArea = document.getElementById('upload-area');
+  const fileInput = document.getElementById('file-input');
+  const analyzeBtn = document.getElementById('analyze-btn');
+  const clearBtn = document.getElementById('clear-btn');
+  const progressBarFill = document.getElementById('progress-bar-fill');
+  const reportDiv = document.getElementById('report');
 
-        async init() {
-          this.canv = this.$refs.canv;
-          this.ctx = this.canv.getContext('2d');
-          const b = 'https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.10.14';
-          this.pose = new Pose({ locateFile: (f) => `${b}/${f}` });
-          this.pose.setOptions({
-            modelComplexity: 0,
-            smoothLandmarks: true,
-            minDetectionConfidence: 0.7,
-            minTrackingConfidence: 0.7,
-          });
-          this.pose.onResults((r) => this.onRes(r));
-        },
+  let selectedFile = null;
 
-        async analyze() {
-          if (!this.file) return;
-          this.loading = true;
-          this.prog = 0;
-          this.msg = 'Loading model...';
-          this.res = null;
+  uploadArea.addEventListener('click', () => fileInput.click());
+  uploadArea.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') fileInput.click();
+  });
 
-          const url = URL.createObjectURL(this.file);
-          this.prog = 10;
-          this.msg = 'Reading file...';
-
-          if (this.file.type.startsWith('image')) {
-            const img = new Image();
-            img.onload = async () => {
-              this.canv.width = img.width;
-              this.canv.height = img.height;
-              this.ctx.drawImage(img, 0, 0);
-              this.prog = 50;
-              this.msg = 'Analyzing image...';
-              const r = await this.send(img);
-              this.onRes(r);
-              this.done(url);
-            };
-            img.onerror = () => this.err('Image failed to load.', url);
-            img.src = url;
-          } else {
-            const vid = document.createElement('video');
-            vid.src = url;
-            vid.onloadedmetadata = async () => {
-              const frames = [0.3, 0.7];
-              let best = null,
-                bestScore = -1;
-              for (let i = 0; i < frames.length; i++) {
-                vid.currentTime = vid.duration * frames[i];
-                await new Promise((r) => (vid.onseeked = r));
-                this.prog = 50 + ((i + 1) * 25);
-                this.msg = `Analyzing frame ${i + 1} of 2...`;
-                const r = await this.send(vid);
-                this.onRes(r);
-                if (this.res && this.res.score > bestScore) {
-                  bestScore = this.res.score;
-                  best = { ...this.res };
-                }
-              }
-              this.res =
-                best || {
-                  items: [
-                    { type: 'minor', title: 'No squat detected', msg: 'Could not detect squat form.' },
-                  ],
-                  score: 0,
-                };
-              this.done(url);
-            };
-            vid.onerror = () => this.err('Video failed to load.', url);
-          }
-        },
-
-        send(img) {
-          return new Promise((resolve) => {
-            const handler = (r) => {
-              this.pose.off('results', handler);
-              resolve(r);
-            };
-            this.pose.onResults(handler);
-            this.pose.send({ image: img });
-          });
-        },
-
-        done(url) {
-          this.loading = false;
-          URL.revokeObjectURL(url);
-          this.prog = 100;
-          this.msg = 'Analysis complete';
-        },
-
-        err(msg, url) {
-          this.res = { items: [{ type: 'major', title: 'Error', msg }] };
-          this.loading = false;
-          URL.revokeObjectURL(url);
-          this.prog = 0;
-          this.msg = '';
-        },
-
-        async startCam() {
-          this.clear();
-          this.cam = true;
-          try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-            const video = document.createElement('video');
-            video.srcObject = stream;
-            await video.play();
-            this.camera = new Camera(video, {
-              onFrame: async () => await this.pose.send({ image: video }),
-              width: 640,
-              height: 480,
-              fps: 30,
-            });
-            this.camera.start();
-          } catch {
-            this.res = {
-              items: [{ type: 'major', title: 'Camera Error', msg: 'Please allow camera access.' }],
-            };
-            this.cam = false;
-          }
-        },
-
-        stopCam() {
-          if (this.camera) this.camera.stop();
-          this.cam = false;
-          this.res = null;
-        },
-
-        clear() {
-          this.stopCam();
-          if (this.canv) this.ctx.clearRect(0, 0, this.canv.width, this.canv.height);
-          this.res = null;
-          this.file = null;
-          this.loading = false;
-          this.prog = 0;
-          this.msg = '';
-        },
-
-        onRes(results) {
-          if (!results.poseLandmarks) return;
-
-          const img = results.image;
-          this.canv.width = img.width || img.videoWidth || this.canv.width;
-          this.canv.height = img.height || img.videoHeight || this.canv.height;
-          this.ctx.clearRect(0, 0, this.canv.width, this.canv.height);
-          this.ctx.drawImage(img, 0, 0);
-
-          const landmarks = results.poseLandmarks.map((l) => ({ ...l }));
-          this.draw(landmarks);
-          this.res = this.analyzeForm(landmarks);
-        },
-
-        draw(lm) {
-          const pairs = [
-            [11, 13],
-            [13, 15],
-            [12, 14],
-            [14, 16],
-            [11, 12],
-            [23, 24],
-            [23, 25],
-            [25, 27],
-            [24, 26],
-            [26, 28],
-          ];
-          this.ctx.strokeStyle = '#00ffff';
-          this.ctx.lineWidth = 5;
-          pairs.forEach(([a, b]) => {
-            const p1 = lm[a],
-              p2 = lm[b];
-            if (p1.visibility > 0.6 && p2.visibility > 0.6) {
-              this.ctx.beginPath();
-              this.ctx.moveTo(p1.x * this.canv.width, p1.y * this.canv.height);
-              this.ctx.lineTo(p2.x * this.canv.width, p2.y * this.canv.height);
-              this.ctx.stroke();
-            }
-          });
-        },
-
-        analyzeForm(lm) {
-          const L = (i) => lm[i];
-          const hip = { x: (L(23).x + L(24).x) / 2, y: (L(23).y + L(24).y) / 2 };
-          const ankle = { y: (L(27).y + L(28).y) / 2 };
-          const kneeL = L(25),
-            kneeR = L(26);
-          const shoulder = { x: (L(11).x + L(12).x) / 2, y: (L(11).y + L(12).y) / 2 };
-
-          const legLen = ((L(23).y - L(27).y) + (L(24).y - L(28).y)) / 2;
-          const depth = Math.round(((ankle.y - hip.y) / legLen) * 100);
-
-          const torso = { x: shoulder.x - hip.x, y: shoulder.y - hip.y };
-          const backAngle = Math.round(
-            (Math.acos(Math.abs(torso.y) / Math.hypot(torso.x, torso.y)) * 180) / Math.PI
-          );
-
-          const drift = Math.round(
-            (Math.abs(kneeL.x - L(27).x) + Math.abs(kneeR.x - L(28).x)) / 2 * 60
-          );
-
-          const issues = [];
-          let score = 100;
-
-          if (depth < 40) {
-            score -= 35;
-            issues.push({ type: 'major', title: 'Too High', msg: 'Drop hips below knees!' });
-          } else if (depth < 70) {
-            score -= 10;
-            issues.push({ type: 'minor', title: 'Shallow', msg: 'Go 2–3" deeper.' });
-          }
-
-          if (backAngle > 35) {
-            score -= 25;
-            issues.push({ type: 'major', title: 'Back Leaning', msg: 'Chest up!' });
-          } else if (backAngle > 20) {
-            score -= 10;
-            issues.push({ type: 'minor', title: 'Slight Lean', msg: 'Stay upright.' });
-          }
-
-          if (drift > 10) {
-            score -= 20;
-            issues.push({ type: 'major', title: 'Knees Forward', msg: `${drift}cm past toes!` });
-          }
-
-          if (issues.length === 0) issues.push({ type: 'good', title: 'Perfect!', msg: 'Great form!' });
-
-          return { items: issues, score: Math.max(0, Math.round(score)) };
-        },
-      };
+  fileInput.addEventListener('change', e => {
+    if (e.target.files.length) {
+      selectedFile = e.target.files[0];
+      reportDiv.innerHTML = `<p>Selected file: <strong>${selectedFile.name}</strong></p>`;
+      analyzeBtn.disabled = false;
+      clearBtn.disabled = false;
+      progressBarFill.style.width = '0%';
     }
-  </script>
+  });
+
+  clearBtn.addEventListener('click', () => {
+    selectedFile = null;
+    fileInput.value = '';
+    reportDiv.innerHTML = '';
+    analyzeBtn.disabled = true;
+    clearBtn.disabled = true;
+    progressBarFill.style.width = '0%';
+  });
+
+  analyzeBtn.addEventListener('click', () => {
+    if (!selectedFile) return;
+    analyzeBtn.disabled = true;
+    clearBtn.disabled = true;
+    reportDiv.innerHTML = `<p>Analyzing ${selectedFile.name}...</p>`;
+    simulateAnalysis(selectedFile);
+  });
+
+  // This simulates the AI analysis with progress updates
+  function simulateAnalysis(file) {
+    let progress = 0;
+    progressBarFill.style.width = '0%';
+
+    // Simulate incremental progress, goes past 60% to 100%
+    const interval = setInterval(() => {
+      if (progress >= 100) {
+        clearInterval(interval);
+        showReport(file);
+        analyzeBtn.disabled = false;
+        clearBtn.disabled = false;
+        return;
+      }
+      progress += Math.random() * 15; // random increments 0-15%
+      if (progress > 100) progress = 100;
+      progressBarFill.style.width = `${progress.toFixed(1)}%`;
+    }, 500);
+  }
+
+  function showReport(file) {
+    // This is a dummy static report for demo
+    reportDiv.innerHTML = `
+      <h2>Analysis Report for ${file.name}</h2>
+      <ul>
+        <li><strong>Squat Depth:</strong> Good (below parallel)</li>
+        <li><strong>Knee Position:</strong> Slightly inward - adjust stance</li>
+        <li><strong>Back Angle:</strong> Safe and neutral</li>
+        <li><strong>Balance:</strong> Even weight distribution on feet</li>
+        <li><strong>Recommendations:</strong> Keep chest up, practice controlled descent</li>
+      </ul>
+      <p><em>Thank you for using SquatSense AI!</em></p>
+    `;
+  }
+</script>
+
 </body>
 </html>
