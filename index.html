@@ -70,10 +70,10 @@
 <body>
 
 <h1>SquatSense AI</h1>
-<p>Upload an image or video of your squat and get a form-correction analysis.</p>
+<p>Upload an image of your squat and receive form feedback.</p>
 
 <div id="upload-area" tabindex="0">
-  ⬆️ Drop photo or video here or click to browse
+  ⬆️ Drop photo here or click to browse
   <input type="file" id="file-input" accept="image/*" style="display:none" />
 </div>
 
@@ -130,34 +130,30 @@
     runProgressBar(selectedFile);
   });
 
-  // -----------------------
-  // Smooth Progress Bar
-  // -----------------------
+  // Progress bar animation
   function runProgressBar(file) {
     let progress = 0;
     progressBarFill.style.width = "0%";
 
     const interval = setInterval(() => {
-      progress += 2.5; // smooth increment
+      progress += 2.5;
       if (progress >= 100) {
         progress = 100;
         clearInterval(interval);
         showReport(file);
       }
       progressBarFill.style.width = progress + "%";
-    }, 80); // smooth update speed
+    }, 80);
   }
 
-  // -----------------------
-  // REAL AI ANALYSIS
-  // -----------------------
+  // REAL AI BACKEND CALL
   async function showReport(file) {
-    reportDiv.innerHTML = "<p>Generating detailed AI squat analysis…</p>";
+    reportDiv.innerHTML = "<p>Generating detailed squat analysis…</p>";
 
     const base64 = await fileToBase64(file);
 
     try {
-      const response = await fetch("YOUR_BACKEND_ENDPOINT_HERE", {
+      const response = await fetch("http://localhost:3000/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image: base64 })
@@ -165,7 +161,6 @@
 
       const data = await response.json();
 
-      // Detailed formatting
       const formatted = data.analysis
         .replace(/\n\n/g, "<br><br>")
         .replace(/\n/g, "<br>");
@@ -174,15 +169,19 @@
         <h2>AI Form Analysis: ${file.name}</h2>
         <div>${formatted}</div>
         <hr>
-        <p><strong>Tip:</strong> Re-upload from new angles (side / 45° / rear) for deeper correction.</p>
+        <p><strong>Suggestion:</strong> Try uploading different angles (side, rear, 45°) for an advanced breakdown.</p>
       `;
 
     } catch (err) {
-      reportDiv.innerHTML = "<p style='color:red;'>❌ ERROR: Could not reach AI backend.</p>";
+      console.error(err);
+      reportDiv.innerHTML = `
+        <p style="color:red;"><strong>❌ ERROR:</strong> Cannot reach AI backend.</p>
+        <p>Make sure your backend server is running at:<br>
+        <code>http://localhost:3000/analyze</code></p>
+      `;
     }
   }
 
-  // Convert file to Base64
   function fileToBase64(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
