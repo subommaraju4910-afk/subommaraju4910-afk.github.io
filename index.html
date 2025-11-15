@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SquatSense AI - Local Pose Analysis</title>
+<title>SquatSense AI - Smart Local Analysis</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
@@ -13,16 +13,15 @@
   body {
     font-family: Arial, sans-serif;
     background: #f7f7fc;
-    color: #333;
-    text-align: center;
     padding: 2rem;
+    text-align: center;
   }
   #upload-area {
     border: 2px dashed #aaa;
     padding: 3rem;
-    cursor: pointer;
     background: white;
     border-radius: 12px;
+    cursor: pointer;
     margin-bottom: 1rem;
   }
   #progress-bar {
@@ -37,39 +36,34 @@
     height: 100%;
     background: #6677ff;
     width: 0%;
-    transition: width 0.25s linear;
+    transition: width .2s linear;
   }
   #report {
-    margin-top: 2rem;
-    max-width: 700px;
+    max-width: 750px;
     background: #fff;
-    padding: 1.5rem;
+    padding: 1.4rem;
+    margin: 2rem auto;
     border-radius: 10px;
     box-shadow: 0 0 10px #bbb;
     text-align: left;
     line-height: 1.5rem;
-    margin-left: auto;
-    margin-right: auto;
   }
-  canvas {
-    display: none;
-  }
+  h2 { margin-top: 0; }
+  canvas { display: none; }
 </style>
 </head>
 <body>
 
-<h1>SquatSense AI (Local Mode)</h1>
-<p>Upload a squat photo. AI will detect your posture locally.</p>
+<h1>SquatSense AI — Personalized Local Form Analyzer</h1>
+<p>Upload a squat photo. AI will analyze your posture directly in the browser.</p>
 
 <div id="upload-area">
-  ⬆️ Click to upload photo
-  <input type="file" id="file-input" accept="image/*" style="display:none">
+  ⬆️ Click to upload photo  
+  <input type="file" id="file-input" accept="image/*" style="display:none;">
 </div>
 
-<div>
-  <button id="analyze-btn" disabled>Analyze</button>
-  <button id="clear-btn" disabled>Clear</button>
-</div>
+<button id="analyze-btn" disabled>Analyze</button>
+<button id="clear-btn" disabled>Clear</button>
 
 <div id="progress-bar"><div id="progress-bar-fill"></div></div>
 <div id="report"></div>
@@ -80,22 +74,18 @@
 let selectedFile = null;
 let detector;
 
-// clickable upload
 document.getElementById("upload-area").onclick = () => {
   document.getElementById("file-input").click();
 };
 
 document.getElementById("file-input").onchange = e => {
-  if (e.target.files.length) {
-    selectedFile = e.target.files[0];
-    document.getElementById("report").innerHTML = 
-      `<p>Selected: <strong>${selectedFile.name}</strong></p>`;
-    document.getElementById("analyze-btn").disabled = false;
-    document.getElementById("clear-btn").disabled = false;
-  }
+  if (!e.target.files.length) return;
+  selectedFile = e.target.files[0];
+  document.getElementById("report").innerHTML = `<p>Selected: <strong>${selectedFile.name}</strong></p>`;
+  document.getElementById("analyze-btn").disabled = false;
+  document.getElementById("clear-btn").disabled = false;
 };
 
-// clear button
 document.getElementById("clear-btn").onclick = () => {
   selectedFile = null;
   document.getElementById("file-input").value = "";
@@ -105,17 +95,13 @@ document.getElementById("clear-btn").onclick = () => {
   document.getElementById("progress-bar-fill").style.width = "0%";
 };
 
-// analyze button
 document.getElementById("analyze-btn").onclick = async () => {
   document.getElementById("analyze-btn").disabled = true;
-  document.getElementById("clear-btn").disabled = true;
-
   runProgressBar();
   await loadModel();
   analyzeSquat(selectedFile);
 };
 
-// progress bar animation
 function runProgressBar() {
   let progress = 0;
   let bar = document.getElementById("progress-bar-fill");
@@ -130,7 +116,6 @@ function runProgressBar() {
   }, 70);
 }
 
-// load MoveNet model
 async function loadModel() {
   if (!detector) {
     detector = await poseDetection.createDetector(
@@ -140,9 +125,8 @@ async function loadModel() {
   }
 }
 
-// main analysis
 async function analyzeSquat(file) {
-  document.getElementById("report").innerHTML = "<p>Processing image…</p>";
+  document.getElementById("report").innerHTML = "<p>Analyzing…</p>";
 
   let img = new Image();
   img.src = URL.createObjectURL(file);
@@ -153,86 +137,133 @@ async function analyzeSquat(file) {
 
     canvas.width = img.width;
     canvas.height = img.height;
-    ctx.drawImage(img, 0, 0, img.width, img.height);
+    ctx.drawImage(img, 0, 0);
 
     const poses = await detector.estimatePoses(canvas);
 
     if (!poses.length) {
-      document.getElementById("report").innerHTML =
-        "<p>❌ No person detected in the image.</p>";
+      document.getElementById("report").innerHTML = 
+        "<p>❌ No person detected. Try clearer lighting + full body.</p>";
       return;
     }
 
-    const keypoints = poses[0].keypoints;
-    const analysis = analyzeForm(keypoints);
+    const kp = poses[0].keypoints;
+    const html = personalizedAnalysis(kp);
 
     document.getElementById("report").innerHTML = `
-      <h2>Squat Analysis Result</h2>
-      ${analysis}
+      <h2>Personalized Squat Analysis</h2>
+      ${html}
       <hr>
-      <p><em>Local AI powered by TensorFlow.js (no server).</em></p>
+      <p><em>Analysis generated locally using TensorFlow MoveNet — no server required.</em></p>
     `;
   };
 }
 
-// angle helper (3-point angle)
+
+/* ---------- UTILS ---------- */
 function angle(a, b, c) {
   const ab = { x: a.x - b.x, y: a.y - b.y };
   const cb = { x: c.x - b.x, y: c.y - b.y };
-
   const dot = ab.x * cb.x + ab.y * cb.y;
   const magAB = Math.sqrt(ab.x**2 + ab.y**2);
   const magCB = Math.sqrt(cb.x**2 + cb.y**2);
-
   return Math.acos(dot / (magAB * magCB)) * (180 / Math.PI);
 }
 
-// squat form analysis logic
-function analyzeForm(k) {
+/* ---------- PERSONALIZED FORM ANALYSIS LOGIC ---------- */
+function personalizedAnalysis(k) {
   const get = name => k.find(p => p.name === name);
 
-  // angles
-  let kneeLeft = angle(get("left_hip"), get("left_knee"), get("left_ankle"));
-  let kneeRight = angle(get("right_hip"), get("right_knee"), get("right_ankle"));
-  
-  let hipAngleLeft = angle(get("left_shoulder"), get("left_hip"), get("left_knee"));
-  let hipAngleRight = angle(get("right_shoulder"), get("right_hip"), get("right_knee"));
+  /* JOINTS */
+  const L = {
+    hip: get("left_hip"),
+    knee: get("left_knee"),
+    ankle: get("left_ankle"),
+    shoulder: get("left_shoulder")
+  };
+  const R = {
+    hip: get("right_hip"),
+    knee: get("right_knee"),
+    ankle: get("right_ankle"),
+    shoulder: get("right_shoulder")
+  };
 
-  let backAngle = angle(get("left_shoulder"), get("left_hip"), get("right_shoulder"));
+  /* ANGLES */
+  const kneeL = angle(L.hip, L.knee, L.ankle);
+  const kneeR = angle(R.hip, R.knee, R.ankle);
+  const hipL = angle(L.shoulder, L.hip, L.knee);
+  const hipR = angle(R.shoulder, R.hip, R.knee);
 
-  let issues = [];
+  const torsoAngle = angle(L.shoulder, L.hip, R.shoulder);
+  const shoulderTilt = Math.abs(L.shoulder.y - R.shoulder.y);
+  const hipShift = Math.abs(L.hip.y - R.hip.y);
 
-  // depth
-  if (kneeLeft < 70 || kneeRight < 70) {
-    issues.push("• **You are not hitting depth** — knees angles are too open (likely above parallel).");
+  const kneeXdist = Math.abs(L.knee.x - R.knee.x);
+  const ankleXdist = Math.abs(L.ankle.x - R.ankle.x);
+
+  /* REPORT */
+  let out = [];
+
+  /* DEPTH */
+  let avgKnee = (kneeL + kneeR) / 2;
+  if (avgKnee > 110) {
+    out.push(`<p><strong>🔻 Depth: Too shallow.</strong><br>
+    Your knee angle suggests your hips are not reaching parallel.<br>
+    <strong>Fix:</strong> Sit back more, widen stance slightly, or elevate heels.</p>`);
+  } else if (avgKnee > 75) {
+    out.push(`<p><strong>✔ Depth looks good.</strong></p>`);
   } else {
-    issues.push("• **Depth looks solid** — your knee angles suggest you are close to or below parallel.");
+    out.push(`<p><strong>⚠ Very deep squat.</strong><br>
+    You may be losing tension at the bottom.<br>
+    <strong>Fix:</strong> Stop slightly above “ass-to-grass,” brace harder.</p>`);
   }
 
-  // knee valgus
-  const kneeDistance = Math.abs(get("left_knee").x - get("right_knee").x);
-  const ankleDistance = Math.abs(get("left_ankle").x - get("right_ankle").x);
-
-  if (kneeDistance < ankleDistance * 0.7) {
-    issues.push("• **Knees are collapsing inward (valgus)** — push knees out and engage glutes.");
+  /* KNEE VALGUS */
+  if (kneeXdist < ankleXdist * 0.65) {
+    out.push(`<p><strong>⚠ Knee Valgus Detected.</strong><br>
+    Your knees are collapsing inward relative to your ankles.<br>
+    <strong>Fix:</strong> Push knees out, screw feet into floor, strengthen glute medius.</p>`);
   } else {
-    issues.push("• **Knee tracking looks stable**.");
+    out.push(`<p><strong>✔ Knee tracking looks stable.</strong></p>`);
   }
 
-  // back rounding
-  if (backAngle < 150) {
-    issues.push("• **Back is rounding forward** — keep chest up and brace harder.");
+  /* BACK POSITION */
+  if (torsoAngle < 140) {
+    out.push(`<p><strong>⚠ Excessive forward lean.</strong><br>
+    Your torso is collapsing forward, likely from weak core or tight ankles.<br>
+    <strong>Fix:</strong> Brace harder, elevate heels slightly, widen stance.</p>`);
   } else {
-    issues.push("• **Back position looks neutral**.");
+    out.push(`<p><strong>✔ Back angle looks neutral and safe.</strong></p>`);
   }
 
-  // hip shift
-  let hipShift = Math.abs(get("left_hip").y - get("right_hip").y);
+  /* HIP SHIFT */
   if (hipShift > 20) {
-    issues.push("• **Hip shift detected** — weight may be uneven between legs.");
+    out.push(`<p><strong>⚠ Hip Shift to one side.</strong><br>
+    Weight is uneven between legs.<br>
+    <strong>Fix:</strong> Strengthen weaker leg, use tempo squats, film from rear angle.</p>`);
   }
 
-  return issues.map(i => `<p>${i}</p>`).join("");
+  /* SHOULDER TILT (BAR TILT) */
+  if (shoulderTilt > 25) {
+    out.push(`<p><strong>⚠ Shoulder tilt detected.</strong><br>
+    Your upper body is leaning or rotating.<br>
+    <strong>Fix:</strong> Keep chest square, pinch shoulder blades, check bar placement.</p>`);
+  }
+
+  /* ANKLE / FOOT SYMMETRY */
+  if (Math.abs(L.ankle.x - R.ankle.x) > 50) {
+    out.push(`<p><strong>⚠ Stance asymmetry.</strong><br>
+    One foot is significantly farther forward.<br>
+    <strong>Fix:</strong> Square your stance before descending.</p>`);
+  }
+
+  /* If too few issues, still give helpful advice */
+  if (out.length < 3) {
+    out.push(`<p><strong>💡 Overall form looks solid!</strong><br>
+    Try filming from side and rear angles for a deeper breakdown.</p>`);
+  }
+
+  return out.join("");
 }
 </script>
 
