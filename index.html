@@ -1,483 +1,353 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="h-full bg-gray-50">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>PoseForm Analyzer</title>
+  <title>AI Exercise Form Checker</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/pose.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://unpkg.com/@mediapipe/pose@0.10.14"></script>
+  <script src="https://unpkg.com/@mediapipe/camera_utils@0.10.14"></script>
   <style>
-    #uploadArea { @apply border-4 border-dashed border-gray-400 rounded-xl transition-all duration-300; }
-    #uploadArea:hover { @apply border-indigo-600 bg-indigo-50; }
-    .thumb { @apply cursor-pointer transition-transform hover:scale-105; }
-    .silhouette { @apply absolute top-0 left-0 opacity-40 pointer-events-none; }
-    .hidden { @apply hidden; }
-    .mirror { transform: scaleX(-1); }
+    .dragover { @apply border-blue-500 bg-blue-50; }
+    #outputCanvas { max-width: 100%; border-radius: 0.5rem; }
   </style>
 </head>
-<body class="bg-gradient-to-br from-gray-100 to-gray-200 min-h-screen font-sans">
-
-<div class="max-w-5xl mx-auto p-4 space-y-6">
-  <header class="text-center">
-    <h1 class="text-5xl font-bold text-indigo-700 mb-2">PoseForm Analyzer</h1>
-    <p class="text-gray-600">AI-powered form checker • Instant feedback • PDF reports</p>
+<body class="min-h-screen flex flex-col">
+  <header class="bg-indigo-600 text-white p-4 shadow-md">
+    <h1 class="text-2xl font-bold text-center">AI Exercise Form Checker</h1>
+    <p class="text-center opacity-90 text-sm">Upload a photo or short video (≤30s) of your squat, push-up, etc.</p>
   </header>
 
-  <!-- Exercise Selector -->
-  <div class="flex justify-center">
-    <select id="exercise" class="px-6 py-3 text-lg font-medium border-2 border-indigo-300 rounded-xl focus:ring-4 focus:ring-indigo-300 focus:outline-none">
-      <option value="squat">Squat</option>
-      <option value="deadlift">Deadlift</option>
-      <option value="bench">Bench Press</option>
-      <option value="ohp">Overhead Press</option>
-      <option value="pullup">Pull-Up</option>
-      <option value="pushup">Push-Up</option>
-    </select>
-  </div>
+  <main class="flex-1 container mx-auto p-6 max-w-4xl" x-data="exerciseApp()">
+    <!-- Upload Zone -->
+    <div class="border-4 border-dashed rounded-xl p-8 text-center mb-6"
+         :class="dragging ? 'dragover' : 'border-gray-300'"
+         @dragover.prevent="dragging=true"
+         @dragleave.prevent="dragging=false"
+         @drop.prevent="handleDrop($event)">
+      <input type="file" id="fileInput" class="hidden" accept="image/*,video/*" @change="handleFile">
+      <label for="fileInput" class="cursor-pointer">
+        <svg class="mx-auto h-16 w-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+        </svg>
+        <p class="mt-2 text-lg font-medium">Drop file or <span class="text-indigo-600 underline">click to browse</span></p>
+        <p class="text-sm text-gray-500">Photo or Video • Max 100 MB</p>
+      </label>
+    </div>
 
-  <!-- Upload Area -->
-  <div id="uploadArea" class="w-full h-48 flex flex-col items-center justify-center text-center cursor-pointer bg-white rounded-xl shadow-lg">
-    <svg class="w-16 h-16 text-indigo-500 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"/>
-    </svg>
-    <p class="text-lg font-semibold text-gray-700">Drop photos or videos here</p>
-    <p class="text-sm text-gray-500">or click to select</p>
-    <input type="file" id="fileInput" multiple accept="image/*,video/*" class="hidden" />
-  </div>
+    <!-- Progress -->
+    <div x-show="processing" class="mb-6 text-center">
+      <div class="bg-gray-200 h-3 rounded-full overflow-hidden max-w-md mx-auto">
+        <div class="bg-indigo-600 h-full transition-all duration-300" :style="`width:${progress}%`"></div>
+      </div>
+      <p class="mt-2 text-sm" x-text="progressMessage"></p>
+    </div>
 
-  <!-- Control Buttons -->
-  <div class="flex flex-wrap justify-center gap-3">
-    <button id="camBtn" class="px-6 py-3 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 flex items-center gap-2 shadow-md">
-      Camera On
-    </button>
-    <button id="analyzeBtn" class="px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 disabled:opacity-50 shadow-md" disabled>
-      Analyze Frame
-    </button>
-    <button id="clearBtn" class="px-6 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 shadow-md">
-      Clear All
-    </button>
-    <button id="downloadBtn" class="px-6 py-3 bg-purple-600 text-white font-bold rounded-xl hover:bg-purple-700 shadow-md hidden">
-      Download PDF
-    </button>
-  </div>
+    <!-- Media Preview + Canvas -->
+    <div class="grid md:grid-cols-2 gap-6 mb-6" x-show="mediaReady">
+      <div>
+        <template x-if="fileType.startsWith('image')">
+          <img :src="mediaUrl" alt="Uploaded" class="max-w-full rounded-lg shadow">
+        </template>
+        <template x-if="fileType.startsWith('video')">
+          <video :src="mediaUrl" controls class="max-w-full rounded-lg shadow"></video>
+        </template>
+      </div>
+      <div>
+        <canvas id="outputCanvas" class="hidden w-full bg-black"></canvas>
+        <p x-show="!hasPose" class="text-center text-gray-500 mt-4">No pose detected yet...</p>
+      </div>
+    </div>
 
-  <!-- Video + Canvas -->
-  <div class="relative mx-auto max-w-3xl rounded-xl overflow-hidden shadow-2xl">
-    <video id="video" class="w-full hidden mirror" playsinline></video>
-    <canvas id="canvas" class="w-full bg-gray-900"></canvas>
-    <canvas id="silhouetteCanvas" class="silhouette w-full h-full"></canvas>
-  </div>
+    <!-- Analysis Result -->
+    <div x-show="result" class="bg-white p-6 rounded-lg shadow-lg">
+      <h2 class="text-xl font-semibold mb-4">Form Analysis</h2>
+      <div class="grid grid-cols-2 gap-4 mb-4 text-center">
+        <div class="p-4 bg-green-100 rounded-lg">
+          <p class="text-2xl font-bold text-green-800" x-text="result.score + '/100'"></p>
+          <p class="text-xs">Form Score</p>
+        </div>
+        <div class="p-4 bg-blue-100 rounded-lg">
+          <p class="font-bold text-blue-800" x-text="result.exercise"></p>
+          <p class="text-xs">Detected Exercise</p>
+        </div>
+      </div>
+      <div class="prose prose-sm" x-html="result.feedback"></div>
+    </div>
 
-  <!-- Reps & Score -->
-  <div class="text-center text-2xl font-bold space-x-6">
-    <span id="repCount" class="text-indigo-600">Reps: 0</span>
-    <span class="text-gray-400">|</span>
-    <span id="formScore" class="text-green-600">Score: --</span>
-  </div>
+    <!-- Webcam Mode (Bonus) -->
+    <div class="mt-8 text-center" x-show="!mediaReady">
+      <button @click="startWebcam()" class="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition">
+        Or Use Webcam (Real-time)
+      </button>
+    </div>
+  </main>
 
-  <!-- Feedback Panel -->
-  <div id="feedback" class="bg-white p-6 rounded-xl shadow-lg max-w-3xl mx-auto hidden">
-    <h2 class="text-2xl font-bold text-indigo-700 mb-4">Form Feedback</h2>
-    <div id="feedbackContent" class="space-y-2"></div>
-  </div>
+  <script>
+    // Alpine.js + App Logic
+    function exerciseApp() {
+      return {
+        dragging: false,
+        processing: false,
+        progress: 0,
+        progressMessage: '',
+        fileType: '',
+        mediaUrl: '',
+        mediaReady: false,
+        hasPose: false,
+        result: null,
+        pose: null,
+        canvas: null,
+        ctx: null,
 
-  <!-- Gallery -->
-  <div id="gallery" class="flex flex-wrap gap-4 justify-center mt-8 hidden"></div>
-</div>
+        init() {
+          this.$watch('mediaReady', () => {
+            if (this.mediaReady && this.fileType.startsWith('image')) {
+              this.$nextTick(() => this.setupCanvas());
+            }
+          });
+        },
 
-<script>
-/* ========== GLOBALS ========== */
-const video = document.getElementById('video');
-const canvas = document.getElementById('canvas');
-const silhouetteCanvas = document.getElementById('silhouetteCanvas');
-const ctx = canvas.getContext('2d');
-const sctx = silhouetteCanvas.getContext('2d');
-const exerciseSelect = document.getElementById('exercise');
-const gallery = document.getElementById('gallery');
-const feedbackPanel = document.getElementById('feedback');
-const feedbackContent = document.getElementById('feedbackContent');
-const repCountEl = document.getElementById('repCount');
-const formScoreEl = document.getElementById('formScore');
+        handleDrop(e) {
+          this.dragging = false;
+          const file = e.dataTransfer.files[0];
+          if (file) this.processFile(file);
+        },
 
-let pose, cameraInterval = null;
-let currentImage = null;
-let currentVideo = null;
-let results = [];
-let lastResults = null;
-let repCount = 0;
-let inBottom = false;
-let objectURLs = [];
+        handleFile(e) {
+          const file = e.target.files[0];
+          if (file) this.processFile(file);
+        },
 
-/* ========== MEDIAPIPE POSE ========== */
-const poseOptions = {
-  modelComplexity: 1,
-  smoothLandmarks: true,
-  minDetectionConfidence: 0.7,
-  minTrackingConfidence: 0.7
-};
-pose = new Pose({locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/${f}`});
-pose.setOptions(poseOptions);
-pose.onResults(onResults);
+        processFile(file) {
+          this.reset();
+          this.fileType = file.type;
+          this.mediaUrl = URL.createObjectURL(file);
+          this.mediaReady = true;
 
-/* ========== EVENT LISTENERS ========== */
-document.getElementById('uploadArea').addEventListener('click', () => document.getElementById('fileInput').click());
-document.getElementById('fileInput').addEventListener('change', e => handleFiles(e.target.files));
-document.getElementById('uploadArea').addEventListener('dragover', e => { e.preventDefault(); e.target.classList.add('border-indigo-600', 'bg-indigo-50'); });
-document.getElementById('uploadArea').addEventListener('dragleave', e => e.target.classList.remove('border-indigo-600', 'bg-indigo-50'));
-document.getElementById('uploadArea').addEventListener('drop', e => { e.preventDefault(); e.target.classList.remove('border-indigo-600', 'bg-indigo-50'); handleFiles(e.dataTransfer.files); });
+          if (this.fileType.startsWith('image')) {
+            this.analyzeImage(file);
+          } else if (this.fileType.startsWith('video')) {
+            this.analyzeVideo(file);
+          }
+        },
 
-document.getElementById('camBtn').addEventListener('click', toggleCamera);
-document.getElementById('analyzeBtn').addEventListener('click', analyzeCurrent);
-document.getElementById('clearBtn').addEventListener('click', clearAll);
-document.getElementById('downloadBtn').addEventListener('click', downloadPDF);
+        reset() {
+          this.processing = false;
+          this.progress = 0;
+          this.progressMessage = '';
+          this.hasPose = false;
+          this.result = null;
+          if (this.canvas) this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        },
 
-/* ========== FILE HANDLING ========== */
-function handleFiles(files) {
-  stopCamera();
-  results = [];
-  gallery.innerHTML = '';
-  gallery.classList.remove('hidden');
-  [...files].forEach(file => {
-    const url = URL.createObjectURL(file);
-    objectURLs.push(url);
-    file.type.startsWith('video') ? loadVideo(url, file.name) : loadImage(url, file.name);
-  });
-}
+        setupCanvas() {
+          this.canvas = document.getElementById('outputCanvas');
+          this.ctx = this.canvas.getContext('2d');
+          const img = new Image();
+          img.src = this.mediaUrl;
+          img.onload = () => {
+            this.canvas.width = img.width;
+            this.canvas.height = img.height;
+            this.canvas.classList.remove('hidden');
+          };
+        },
 
-function loadImage(url, name) {
-  const img = new Image();
-  img.onload = () => addToGallery(img, name);
-  img.src = url;
-}
+        // === MediaPipe Setup ===
+        initPose() {
+          if (this.pose) return;
+          this.pose = new Pose({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.10.14/${file}`
+          });
+          this.pose.setOptions({
+            modelComplexity: 1,
+            smoothLandmarks: true,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+          });
+          this.pose.onResults((results) => this.onPoseResults(results));
+        },
 
-function loadVideo(url, name) {
-  currentVideo = { url, name };
-  video.src = url;
-  video.classList.remove('hidden');
-  canvas.classList.add('hidden');
-  video.onloadedmetadata = () => {
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    enableAnalyzeBtn();
-  };
-  video.ontimeupdate = drawVideoFrame;
-}
+        // === Image Analysis ===
+        async analyzeImage(file) {
+          this.processing = true;
+          this.progressMessage = 'Loading AI model...';
+          this.initPose();
 
-/* ========== GALLERY ========== */
-function addToGallery(img, name) {
-  const thumb = document.createElement('div');
-  thumb.className = 'thumb w-28 h-28 bg-gray-300 border-4 border-white rounded-xl overflow-hidden shadow-md relative';
-  const c = document.createElement('canvas');
-  c.width = 112; c.height = 112;
-  c.getContext('2d').drawImage(img, 0, 0, 112, 112);
-  thumb.appendChild(c);
+          const img = new Image();
+          img.src = URL.createObjectURL(file);
+          await img.decode();
 
-  const label = document.createElement('div');
-  label.className = 'absolute bottom-0 left-0 right-0 bg-black bg-opacity-60 text-white text-xs text-center py-1 truncate px-2';
-  label.textContent = name || 'photo';
-  thumb.appendChild(label);
+          this.progress = 30;
+          this.progressMessage = 'Detecting pose...';
+          await this.pose.send({ image: img });
 
-  thumb.onclick = () => {
-    document.querySelectorAll('.thumb').forEach(t => t.classList.remove('ring-4', 'ring-indigo-600'));
-    thumb.classList.add('ring-4', 'ring-indigo-600');
-    showImage(img);
-  };
-  gallery.appendChild(thumb);
-}
+          this.progress = 100;
+          setTimeout(() => { this.processing = false; }, 500);
+        },
 
-function showImage(img) {
-  currentImage = img;
-  currentVideo = null;
-  video.classList.add('hidden');
-  canvas.classList.remove('hidden');
-  canvas.width = img.width;
-  canvas.height = img.height;
-  silhouetteCanvas.width = img.width;
-  silhouetteCanvas.height = img.height;
-  ctx.drawImage(img, 0, 0);
-  enableAnalyzeBtn();
-  drawSilhouette(exerciseSelect.value);
-  pose.send({ image: img });
-}
+        // === Video Analysis (middle frame) ===
+        async analyzeVideo(file) {
+          this.processing = true;
+          this.progressMessage = 'Loading video...';
+          this.initPose();
 
-/* ========== CAMERA ========== */
-function toggleCamera() {
-  if (cameraInterval) {
-    stopCamera();
-    document.getElementById('camBtn').textContent = 'Camera On';
-    return;
-  }
-  document.getElementById('camBtn').textContent = 'Camera Off';
-  video.classList.remove('hidden');
-  canvas.classList.add('hidden');
-  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 } })
-    .then(stream => {
-      video.srcObject = stream;
-      video.play();
-      cameraInterval = setInterval(() => pose.send({ image: video }), 60);
-      enableAnalyzeBtn();
-    })
-    .catch(err => alert('Camera access denied: ' + err));
-}
+          const video = document.createElement('video');
+          video.src = URL.createObjectURL(file);
+          await new Promise(r => { video.onloadedmetadata = r; });
 
-function stopCamera() {
-  if (cameraInterval) clearInterval(cameraInterval);
-  cameraInterval = null;
-  if (video.srcObject) {
-    video.srcObject.getTracks().forEach(t => t.stop());
-    video.srcObject = null;
-  }
-}
+          const midTime = video.duration / 2;
+          video.currentTime = midTime;
 
-function enableAnalyzeBtn() {
-  document.getElementById('analyzeBtn').disabled = false;
-}
+          await new Promise(r => { video.onseeked = r; });
 
-/* ========== CLEAR ALL ========== */
-function clearAll() {
-  stopCamera();
-  document.getElementById('camBtn').textContent = 'Camera On';
-  video.src = '';
-  video.classList.add('hidden');
-  canvas.classList.add('hidden');
-  silhouetteCanvas.classList.add('hidden');
-  gallery.innerHTML = '';
-  gallery.classList.add('hidden');
-  feedbackPanel.classList.add('hidden');
-  document.getElementById('downloadBtn').classList.add('hidden');
-  document.getElementById('analyzeBtn').disabled = true;
-  results = [];
-  repCount = 0;
-  inBottom = false;
-  repCountEl.textContent = 'Reps: 0';
-  formScoreEl.textContent = 'Score: --';
-  currentImage = null;
-  currentVideo = null;
-  objectURLs.forEach(URL.revokeObjectURL);
-  objectURLs = [];
-}
+          this.progress = 60;
+          this.progressMessage = 'Detecting pose in middle frame...';
+          await this.pose.send({ image: video });
 
-/* ========== POSE RESULTS ========== */
-function onResults(res) {
-  lastResults = res;
-  if (!res.poseLandmarks) {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (currentImage) ctx.drawImage(currentImage, 0, 0);
-    return;
-  }
+          this.progress = 100;
+          setTimeout(() => { this.processing = false; }, 500);
+        },
 
-  canvas.width = res.image.width;
-  canvas.height = res.image.height;
-  silhouetteCanvas.width = res.image.width;
-  silhouetteCanvas.height = res.image.height;
+        // === Pose Results ===
+        onPoseResults(results) {
+          if (!this.canvas || !this.ctx) return;
 
-  ctx.save();
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(res.image, 0, 0);
-  drawConnectors(ctx, res.poseLandmarks, POSE_CONNECTIONS, { color: '#00FF00', lineWidth: 5 });
-  drawLandmarks(ctx, res.poseLandmarks, { color: '#FF0000', lineWidth: 3 });
-  ctx.restore();
+          this.ctx.save();
+          this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-  drawSilhouette(exerciseSelect.value);
+          if (results.image) {
+            this.ctx.drawImage(results.image, 0, 0, this.canvas.width, this.canvas.height);
+          }
 
-  const fb = checkForm(exerciseSelect.value, res.poseLandmarks);
-  if (video.srcObject || (currentVideo && !currentImage)) {
-    displayFeedback(fb);
-    updateRepsAndScore(fb, exerciseSelect.value, res.poseLandmarks);
-  }
-}
+          if (results.poseLandmarks) {
+            this.hasPose = true;
+            this.drawLandmarks(results.poseLandmarks);
+            this.analyzeForm(results.poseLandmarks);
+          } else {
+            this.hasPose = false;
+          }
 
-function drawVideoFrame() {
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  if (lastResults) {
-    drawConnectors(ctx, lastResults.poseLandmarks, POSE_CONNECTIONS, { color: '#00FF00', lineWidth: 5 });
-    drawLandmarks(ctx, lastResults.poseLandmarks, { color: '#FF0000', lineWidth: 3 });
-  }
-}
+          this.ctx.restore();
+        },
 
-/* ========== ANALYZE CURRENT FRAME ========== */
-async function analyzeCurrent() {
-  let img = currentImage;
-  if (!img && video.src) {
-    video.pause();
-    const snap = document.createElement('canvas');
-    snap.width = video.videoWidth;
-    snap.height = video.videoHeight;
-    snap.getContext('2d').drawImage(video, 0, 0);
-    img = snap;
-  }
-  if (!img || !lastResults?.poseLandmarks) {
-    alert('No pose detected. Try a clearer side view.');
-    return;
-  }
+        drawLandmarks(landmarks) {
+          const connections = [
+            [0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[0,8],
+            [8,9],[9,10],[10,11],[8,12],[12,13],[13,14],[14,15],
+            [11,12],[11,13],[13,15],[12,14],[14,16],[15,16]
+          ].map(([a,b]) => [landmarks[a], landmarks[b]]);
 
-  const lm = lastResults.poseLandmarks;
-  const fb = checkForm(exerciseSelect.value, lm);
-  displayFeedback(fb);
+          // Draw skeleton
+          this.ctx.strokeStyle = '#10b981';
+          this.ctx.lineWidth = 3;
+          connections.forEach(([a, b]) => {
+            if (a.visibility > 0.5 && b.visibility > 0.5) {
+              this.ctx.beginPath();
+              this.ctx.moveTo(a.x * this.canvas.width, a.y * this.canvas.height);
+              this.ctx.lineTo(b.x * this.canvas.width, b.y * this.canvas.height);
+              this.ctx.stroke();
+            }
+          });
 
-  const resultCanvas = document.createElement('canvas');
-  resultCanvas.width = canvas.width;
-  resultCanvas.height = canvas.height;
-  const rctx = resultCanvas.getContext('2d');
-  rctx.drawImage(canvas, 0, 0);
+          // Draw points
+          this.ctx.fillStyle = '#10b981';
+          landmarks.forEach(lm => {
+            if (lm.visibility > 0.5) {
+              this.ctx.beginPath();
+              this.ctx.arc(lm.x * this.canvas.width, lm.y * this.canvas.height, 5, 0, 2 * Math.PI);
+              this.ctx.fill();
+            }
+          });
+        },
 
-  results.push({
-    canvas: resultCanvas.toDataURL('image/png'),
-    feedback: fb,
-    exercise: exerciseSelect.selectedOptions[0].text,
-    score: fb.score
-  });
+        // === Form Analysis (Squat Demo) ===
+        analyzeForm(landmarks) {
+          const lm = (i) => ({
+            x: landmarks[i].x,
+            y: landmarks[i].y,
+            v: landmarks[i].visibility
+          });
 
-  document.getElementById('downloadBtn').classList.remove('hidden');
-}
+          const hip = lm(23), knee = lm(25), ankle = lm(27), shoulder = lm(11);
 
-/* ========== ANGLE HELPER ========== */
-function getAngle(a, b, c) {
-  const rad = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
-  let deg = rad * 180 / Math.PI;
-  if (deg < 0) deg += 360;
-  if (deg > 180) deg = 360 - deg;
-  return deg;
-}
+          if ([hip, knee, ankle, shoulder].some(p => p.v < 0.5)) {
+            this.result = { exercise: "Squat (partial)", score: 0, feedback: "<p>Not enough landmarks visible.</p>" };
+            return;
+          }
 
-/* ========== FORM CHECKS ========== */
-function checkForm(ex, lm) {
-  const p = i => ({ x: lm[i].x, y: lm[i] ? lm[i].y : 0 });
-  const fb = { good: [], bad: [], score: 0 };
-  const total = { squat: 5, deadlift: 4, bench: 2, ohp: 3, pullup: 2, pushup: 5 }[ex];
-  let passed = 0;
+          // Vector math
+          const vec = (a, b) => ({ x: b.x - a.x, y: b.y - a.y });
+          const dot = (a, b) => a.x * b.x + a.y * b.y;
+          const norm = (v) => Math.sqrt(v.x * v.x + v.y * v.y);
+          const angleDeg = (a, b) => {
+            const cos = dot(a, b) / (norm(a) * norm(b) + 1e-6);
+            return (Math.acos(Math.max(-1, Math.min(1, cos))) * 180 / Math.PI);
+          };
 
-  const sL = p(11), sR = p(12), hL = p(23), hR = p(24), kL = p(25), kR = p(26),
-        aL = p(27), aR = p(28), wL = p(15), wR = p(16), eL = p(13), eR = p(14), nose = p(0);
+          const kneeAnkle = vec(knee, ankle);
+          const hipKnee = vec(hip, knee);
+          const torso = vec(hip, shoulder);
 
-  switch (ex) {
-    case 'squat':
-      const kl = getAngle(hL, kL, aL), kr = getAngle(hR, kR, aR), back = getAngle(sL, hL, kL),
-            ksym = Math
+          const kneeAngle = angleDeg(hipKnee, kneeAnkle);
+          const backAngle = angleDeg(torso, { x: 0, y: -1 }); // vs vertical
+          const kneeOverAnkle = Math.abs(knee.x - ankle.x) < 0.1;
+          const depth = 1 - hip.y; // lower = better
 
-.abs(kL.x - kR.x), depth = Math.min(kl, kr);
-      if (depth > 80 && depth < 110) { fb.good.push('Knee depth good'); passed++; } else fb.bad.push(`Knee ${depth|0}°`);
-      if (back > 150) { fb.good.push('Back upright'); passed++; } else fb.bad.push(`Back ${back|0}°`);
-      if (ksym < 0.08) { fb.good.push('Knees even'); passed++; } else fb.bad.push('Knees caving');
-      if (hL.y > kL.y + 0.1) { fb.good.push('Hips below knees'); passed++; } else fb.bad.push('Not deep enough');
-      break;
+          let score = 100;
+          const issues = [];
 
-    case 'deadlift':
-      const hinge = Math.min(getAngle(sL, hL, kL), getAngle(sR, hR, kR)), flat = getAngle(sL, hL, hR);
-      if (hinge > 120 && hinge < 160) { fb.good.push('Hip hinge good'); passed++; } else fb.bad.push(`Hinge ${hinge|0}°`);
-      if (flat > 170) { fb.good.push('Back neutral'); passed++; } else fb.bad.push(`Back ${flat|0}°`);
-      break;
+          if (!kneeOverAnkle) { issues.push("Knees drifting forward — keep them over ankles."); score -= 25; }
+          if (backAngle > 25) { issues.push(`Back leaning (${backAngle.toFixed(0)}°) — stay upright.`); score -= backAngle; }
+          if (depth < 0.4) { issues.push("Go deeper — hips below knee level."); score -= 30; }
 
-    case 'bench':
-      const el = getAngle(sL, eL, wL), er = getAngle(sR, eR, wR);
-      if (el > 75 && el < 105) { fb.good.push('L elbow ~90°'); passed++; } else fb.bad.push(`L ${el|0}°`);
-      if (er > 75 && er < 105) { fb.good.push('R elbow ~90°'); passed++; } else fb.bad.push(`R ${er|0}°`);
-      break;
+          score = Math.max(0, Math.min(100, Math.round(score)));
 
-    case 'ohp':
-      const al = getAngle(hL, sL, eL), ar = getAngle(hR, sR, eR), lock = Math.min(getAngle(sL, eL, wL), getAngle(sR, eR, wR));
-      if (al > 160 && ar > 160) { fb.good.push('Arms vertical'); passed++; } else fb.bad.push(`Arm ${(al+ar)/2|0}°`);
-      if (lock > 165) { fb.good.push('Full lockout'); passed++; } else fb.bad.push(`Lock ${lock|0}°`);
-      break;
+          this.result = {
+            exercise: kneeAngle < 110 && depth > 0.4 ? "Squat" : "Standing / Partial Squat",
+            score,
+            feedback: issues.length
+              ? `<ul class="list-disc pl-5 space-y-1 text-red-700">${issues.map(i => `<li>${i}</li>`).join('')}</ul>`
+              : `<p class="text-green-700 font-semibold">Great form!</p>`
+          };
+        },
 
-    case 'pullup':
-      const chin = nose.y < Math.min(sL.y, sR.y), grip = Math.abs(wL.x - wR.x);
-      if (chin) { fb.good.push('Chin over bar'); passed++; } else fb.bad.push('Chin not over');
-      if (grip > 0.4) { fb.good.push('Wide grip'); passed++; } else fb.bad.push('Grip narrow');
-      break;
+        // === Webcam Real-time Mode ===
+        async startWebcam() {
+          this.reset();
+          this.mediaReady = true;
+          this.fileType = 'video/webcam';
 
-    case 'pushup':
-      const body = (getAngle(aL, hL, sL) + getAngle(aR, hR, sR)) / 2,
-            elbow = (getAngle(sL, eL, wL) + getAngle(sR, eR, wR)) / 2,
-            lock = Math.min(getAngle(sL, eL, wL), getAngle(sR, eR, wR));
-      if (body > 165) { fb.good.push('Body straight'); passed++; } else fb.bad.push(`Body ${body|0}°`);
-      if (elbow > 75 && elbow < 105) { fb.good.push('Elbows ~90°'); passed++; } else fb.bad.push(`Elbow ${elbow|0}°`);
-      if (lock > 160) { fb.good.push('Full lockout'); passed++; } else fb.bad.push(`Lock ${lock|0}°`);
-      break;
-  }
+          const video = document.createElement('video');
+          video.style.display = 'none';
+          document.body.appendChild(video);
 
-  fb.score = Math.round((passed / total) * 100);
-  return fb;
-}
+          const canvas = document.getElementById('outputCanvas');
+          canvas.classList.remove('hidden');
+          this.canvas = canvas;
+          this.ctx = canvas.getContext('2d');
 
-/* ========== REPS & SCORE ========== */
-function updateRepsAndScore(fb, ex, lm) {
-  const p = i => ({ x: lm[i].x, y: lm[i].y });
-  const knee = (getAngle(p(23), p(25), p(27)) + getAngle(p(24), p(26), p(28))) / 2;
+          this.initPose();
 
-  if (ex === 'squat') {
-    if (knee < 95 && !inBottom) inBottom = true;
-    if (knee > 110 && inBottom) { repCount++; inBottom = false; repCountEl.textContent = `Reps: ${repCount}`; }
-  }
+          const camera = new Camera(video, {
+            onFrame: async () => {
+              await this.pose.send({ image: video });
+            },
+            width: 640,
+            height: 480
+          });
+          camera.start();
+        }
+      };
+    }
+  </script>
 
-  formScoreEl.textContent = `Score: ${fb.score}`;
-}
-
-/* ========== FEEDBACK UI ========== */
-function displayFeedback(fb) {
-  feedbackPanel.classList.remove('hidden');
-  let html = `<div class="text-3xl font-bold mb-3 text-indigo-700">${fb.score}/100</div>`;
-  fb.good.forEach(g => html += `<p class="text-green-600 font-semibold">Checkmark ${g}</p>`);
-  fb.bad.forEach(b => html += `<p class="text-red-600 font-semibold">Cross ${b}</p>`);
-  feedbackContent.innerHTML = html;
-}
-
-/* ========== SILHOUETTE GUIDE ========== */
-function drawSilhouette(ex) {
-  sctx.clearRect(0, 0, silhouetteCanvas.width, silhouetteCanvas.height);
-  sctx.strokeStyle = '#4F46E5';
-  sctx.lineWidth = 8;
-  sctx.globalAlpha = 0.5;
-
-  const w = silhouetteCanvas.width, h = silhouetteCanvas.height, cx = w * 0.5;
-
-  switch (ex) {
-    case 'squat':
-      sctx.beginPath();
-      sctx.moveTo(cx * 0.9, h * 0.3); sctx.lineTo(cx * 0.9, h * 0.6);
-      sctx.lineTo(cx * 0.7, h * 0.9); sctx.lineTo(cx * 0.7, h * 1.1);
-      sctx.moveTo(cx * 1.1, h * 0.3); sctx.lineTo(cx * 1.1, h * 0.6);
-      sctx.lineTo(cx * 1.3, h * 0.9); sctx.lineTo(cx * 1.3, h * 1.1);
-      sctx.stroke();
-      break;
-    case 'deadlift':
-      sctx.beginPath();
-      sctx.moveTo(cx * 0.9, h * 0.3); sctx.lineTo(cx * 0.9, h * 0.5);
-      sctx.lineTo(cx * 0.7, h * 0.7); sctx.lineTo(cx * 0.7, h * 1.0);
-      sctx.moveTo(cx * 1.1, h * 0.3); sctx.lineTo(cx * 1.1, h * 0.5);
-      sctx.lineTo(cx * 1.3, h * 0.7); sctx.lineTo(cx * 1.3, h * 1.0);
-      sctx.stroke();
-      break;
-    // Add more as needed
-  }
-}
-
-/* ========== PDF EXPORT ========== */
-async function downloadPDF() {
-  const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF('p', 'mm', 'a4');
-  let y = 20;
-
-  for (let i = 0; i < results.length; i++) {
-    if (i > 0) pdf.addPage();
-    const img = results[i].canvas;
-    const imgWidth = 180;
-    const imgHeight = (canvas.height * imgWidth / canvas.width);
-    pdf.addImage(img, 'PNG', 15, y, imgWidth, imgHeight);
-    y += imgHeight + 10;
-    pdf.setFontSize(16);
-    pdf.text(`${results[i].exercise} • Score: ${results[i].score}/100`, 15, y);
-    y += 10;
-    pdf.setFontSize(12);
-    results[i].feedback.good.forEach(g => { pdf.setTextColor(0, 150, 0); pdf.text(`Checkmark ${g}`, 20, y); y += 7; });
-    results[i].feedback.bad.forEach(b => { pdf.setTextColor(200, 0, 0); pdf.text(`Cross ${b}`, 20, y); y += 7; });
-    y = 20;
-  }
-  pdf.save(`PoseForm-Report-${new Date().toISOString().slice(0,10)}.pdf`);
-}
-</script>
+  <script>
+    // Load Alpine.js
+    document.addEventListener('alpine:init', () => {
+      // Alpine is loaded via CDN in <head>
+    });
+  </script>
 </body>
 </html>
