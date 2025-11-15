@@ -1,338 +1,382 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full bg-gray-50">
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
+  <title>Squat Fix – AI Coach</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Squat Fix – What You're Doing Wrong</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- MediaPipe -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.10.14"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.10.14"></script>
+
+  <!-- Alpine.js -->
+  <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+
   <style>
-    .dragover { @apply border-blue-500 bg-blue-50; }
-    #outputCanvas { max-width:100%; border-radius:.5rem; }
+    :root { --p: #7c81ff; --g:#6acb8a; --r:#ff6565; --y:#ffcb66; --gray:#444; }
+    body { background:#f4f4f8; margin:0; font-family:'Segoe UI',sans-serif; color:#333; }
+    .container { max-width:1050px; margin:auto; padding:22px; }
+    h1 { text-align:center; color:#6060e0; margin-bottom:5px; }
+    .subtitle { text-align:center; color:#666; font-size:15px; margin-top:-5px; }
+
+    /** Upload box **/
+    .drop {
+      padding:50px; border:3px dashed #ccc; border-radius:15px;
+      background:white; cursor:pointer; transition:0.3s;
+      text-align:center; box-shadow:0 2px 8px rgba(0,0,0,0.05);
+    }
+    .drop.dragover { background:#f3f1ff; border-color:var(--p); }
+
+    /** Buttons **/
+    .btn {
+      padding:10px 20px; border-radius:8px; border:none; cursor:pointer;
+      font-weight:600; color:white; margin:6px; transition:0.2s;
+      box-shadow:0 3px 10px rgba(0,0,0,0.12);
+    }
+    .p { background:var(--p); } .p:hover { background:#6158df; }
+    .g { background:var(--g); } .g:hover { background:#4dbb70; }
+    .r { background:var(--r); } .r:hover { background:#ff4a4a; }
+    .gray { background:var(--gray); } .gray:hover { background:#222; }
+    .btn:disabled { opacity:0.45; cursor:not-allowed; }
+
+    /** Loading **/
+    #loaderBar { height:12px; background:#e3e3e3; border-radius:10px; margin:20px 0; overflow:hidden; }
+    #loaderFill { height:100%; width:0%; background:var(--p); transition:0.25s; }
+
+    /** Canvas **/
+    canvas {
+      width:100%; border-radius:12px; background:#000;
+      margin-top:25px; box-shadow:0 4px 14px rgba(0,0,0,0.15);
+    }
+
+    /** Result panel **/
+    .result {
+      background:white; padding:20px; border-radius:14px;
+      margin-top:22px; box-shadow:0 3px 12px rgba(0,0,0,0.12);
+    }
+    .issue { padding:12px; margin:8px 0; border-left:5px solid; border-radius:6px; }
+    .major { background:#ffe6e6; border-color:var(--r); }
+    .minor { background:#fff3d9; border-color:var(--y); }
+    .good { background:#e6fbe6; border-color:var(--g); }
   </style>
 </head>
-<body class="min-h-screen flex flex-col">
-<header class="bg-indigo-600 text-white p-4 shadow-md">
-  <h1 class="text-2xl font-bold text-center">Squat Fix</h1>
-  <p class="text-center opacity-90 text-sm">AI shows <strong>exactly</strong> what you're doing wrong</p>
-</header>
 
-<main class="flex-1 container mx-auto p-6 max-w-5xl" x-data="app()">
-  <!-- UPLOAD -->
-  <div class="border-4 border-dashed rounded-xl p-8 text-center mb-6"
-       :class="dragging ? 'dragover' : 'border-gray-300'"
-       @dragover.prevent="dragging=true"
-       @dragleave.prevent="dragging=false"
-       @drop.prevent="handleDrop">
-    <input type="file" id="fileInput" class="hidden" accept="image/*,video/*" @change="handleFile">
-    <label for="fileInput" class="cursor-pointer block">
-      <svg class="mx-auto h-16 w-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/>
-      </svg>
-      <p class="mt-2 text-lg font-medium">Drop file or <span class="text-indigo-600 underline">click</span></p>
-      <p class="text-sm text-gray-500">Photo or Video</p>
-    </label>
+<body>
+<div class="container" x-data="squatApp()" x-init="init()">
+
+  <h1>Squat Fix</h1>
+  <p class="subtitle">AI shows exactly what you're doing wrong – fully fixed version</p>
+
+  <!-- Upload -->
+  <div class="drop"
+       :class="dragging ? 'dragover' : ''"
+       @dragover.prevent="dragging = true"
+       @dragleave.prevent="dragging = false"
+       @drop.prevent="handleDrop($event)"
+       @click="$refs.fileInput.click()">
+
+    <p style="font-size:32px; margin:0;">⬆️ Upload</p>
+    <p>Drop photo or video<br><small>or click to browse</small></p>
+
+    <input type="file" x-ref="fileInput" hidden accept="image/*,video/*" @change="handleFile($event)">
   </div>
 
-  <!-- BUTTONS -->
-  <div class="flex flex-wrap gap-3 justify-center mb-6">
-    <button @click="analyzeUpload()" :disabled="!fileReady || processing"
-            class="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
-      Analyze
-    </button>
-    <button @click="startWebcam()" :disabled="webcamActive || processing"
-            class="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50">
-      Live Camera
-    </button>
-    <button @click="stopWebcam()" :disabled="!webcamActive"
-            class="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50">
-      Stop
-    </button>
-    <button @click="clearAll()" class="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700">
-      Clear
-    </button>
+  <!-- Buttons -->
+  <div style="text-align:center; margin-top:14px;">
+    <button class="btn p" @click="analyze()" :disabled="!file || loading">Analyze</button>
+    <button class="btn g" @click="startCamera()" :disabled="loading || camActive">Live Camera</button>
+    <button class="btn r" @click="stopCamera()" :disabled="!camActive">Stop</button>
+    <button class="btn gray" @click="resetAll()">Clear</button>
   </div>
 
-  <!-- PROGRESS -->
-  <div x-show="processing" class="mb-6 text-center">
-    <div class="bg-gray-200 h-3 rounded-full overflow-hidden max-w-md mx-auto">
-      <div class="bg-indigo-600 h-full transition-all duration-200" :style="`width:${progress}%`"></div>
-    </div>
-    <p class="mt-2 text-sm" x-text="progressMessage"></p>
+  <!-- Loader -->
+  <div x-show="loading" id="loaderBar">
+    <div id="loaderFill" :style="{ width: progress + '%' }"></div>
   </div>
 
-  <!-- MEDIA + CANVAS -->
-  <div class="grid md:grid-cols-2 gap-6 mb-6" x-show="mediaReady">
-    <div>
-      <template x-if="isImage">
-        <img :src="mediaUrl" class="max-w-full rounded-lg shadow">
-      </template>
-      <template x-if="!isImage">
-        <video :src="mediaUrl" controls class="max-w-full rounded-lg shadow" x-ref="videoElement"></video>
-      </template>
-    </div>
-    <div>
-      <canvas id="outputCanvas" class="hidden w-full bg-black"></canvas>
-      <p x-show="!hasPose && !processing" class="text-center text-gray-500 mt-4">Analyzing…</p>
-    </div>
-  </div>
+  <p x-show="loading" style="text-align:center; margin-top:-8px; color:#666;">
+    <span x-text="statusText"></span> ( <span x-text="progress"></span>% )
+  </p>
 
-  <!-- DETAILED FIXES -->
-  <div x-show="result" class="bg-white p-6 rounded-lg shadow-lg">
-    <h2 class="text-xl font-semibold mb-4" x-text="webcamActive ? 'Live Feedback' : 'Form Issues'"></h2>
+  <!-- Canvas -->
+  <canvas x-ref="canvas"></canvas>
 
-    <!-- SCORE + DEPTH -->
-    <div class="grid grid-cols-3 gap-4 mb-6 text-center">
-      <div class="p-3 bg-green-100 rounded">
-        <p class="text-2xl font-bold text-green-800" x-text="result.score + '/100'"></p>
-        <p class="text-xs">Score</p>
+  <!-- Results -->
+  <div class="result" x-show="result">
+    <h3 style="margin-top:0;">Squat Analysis</h3>
+
+    <template x-for="item in result.items" :key="item.title">
+      <div class="issue" :class="item.type">
+        <strong x-text="item.title"></strong><br>
+        <span x-text="item.msg"></span>
       </div>
-      <div class="p-3 bg-purple-100 rounded">
-        <p class="font-bold text-purple-800" x-text="result.depth + '%'"></p>
-        <p class="text-xs">Depth</p>
-      </div>
-      <div class="p-3 bg-blue-100 rounded">
-        <p class="font-bold text-blue-800" x-text="result.exercise"></p>
-        <p class="text-xs">Exercise</p>
-      </div>
-    </div>
-
-    <!-- WHAT YOU'RE DOING WRONG -->
-    <div class="space-y-3">
-      <template x-for="(issue, i) in result.issues" :key="i">
-        <div :class="issue.severity === 'major' ? 'bg-red-50 border-red-300' : 'bg-orange-50 border-orange-300'"
-             class="p-4 rounded-lg border-l-4">
-          <p class="font-semibold" x-text="issue.title"></p>
-          <p class="text-sm mt-1" x-text="issue.fix"></p>
-        </div>
-      </template>
-
-      <div x-show="!result.issues.length" class="p-4 bg-green-50 border-l-4 border-green-400 rounded-lg">
-        <p class="font-semibold text-green-800">Perfect form! Keep going!</p>
-      </div>
-    </div>
+    </template>
   </div>
-</main>
 
-<!-- LOGIC -->
+</div>
+
 <script>
-function app() {
+function squatApp() {
   return {
-    dragging: false, processing: false, progress: 0, progressMessage: '',
-    fileReady: false, isImage: false, mediaUrl: '', mediaReady: false,
-    webcamActive: false, hasPose: false, result: null,
-    pose: null, camera: null, canvas: null, ctx: null,
+    pose: null,
+    canvas: null,
+    ctx: null,
+    file: null,
+    result: null,
+    camActive: false,
+    loading: false,
+    dragging: false,
+    progress: 0,
+    statusText: "Loading...",
+    videoEl: null,
+    camera: null,
 
-    handleDrop(e) { this.dragging = false; const f = e.dataTransfer.files[0]; if (f) this.setFile(f); },
-    handleFile(e) { const f = e.target.files[0]; if (f) this.setFile(f); },
-    setFile(file) {
-      this.stopWebcam();
-      this.fileReady = true;
-      this.isImage = file.type.startsWith('image');
-      this.mediaUrl = URL.createObjectURL(file);
-      this.mediaReady = true;
-      this.result = null;
-      this.$nextTick(() => this.setupCanvas());
-    },
-    clearAll() {
-      this.stopWebcam();
-      this.processing = false; this.progress = 0;
-      this.fileReady = false; this.mediaReady = false;
-      this.hasPose = false; this.result = null;
-      if (this.canvas) this.ctx.clearRect(0,0,this.canvas.width,this.canvas.height);
-      document.getElementById('fileInput').value = '';
-    },
-    setupCanvas() {
-      this.canvas = document.getElementById('outputCanvas');
-      this.ctx = this.canvas.getContext('2d');
-      this.canvas.classList.remove('hidden');
-    },
+    /** ---------------- INIT ---------------- */
+    async init() {
+      this.canvas = this.$refs.canvas;
+      this.ctx = this.canvas.getContext("2d");
 
-    initPose() {
-      if (this.pose) return;
-      this.pose = new Pose({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.10.14/${f}` });
+      const base = "https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.10.14";
+
+      this.pose = new Pose({
+        locateFile: f => `${base}/${f}`
+      });
+
       this.pose.setOptions({
-        modelComplexity: 0,
-        smoothLandmarks: false,
+        modelComplexity: 1,
+        smoothLandmarks: true,
+        enableSegmentation: false,
         minDetectionConfidence: 0.7,
-        minTrackingConfidence: 0.7
+        minTrackingConfidence: 0.7,
+        selfieMode: false,
+        modelAssetPath: `${base}/pose_landmark_full.tflite`
       });
-      this.pose.onResults(r => this.onPoseResults(r));
+
+      this.pose.onResults(r => this.processPose(r));
     },
 
-    sendPose(image) {
-      return new Promise(resolve => {
-        const handler = res => { this.pose.off('results', handler); resolve(res); };
-        this.pose.onResults(handler);
-        this.pose.send({ image });
-      });
+    /** ----------- FILE HANDLING ----------- */
+    handleDrop(e) {
+      this.dragging = false;
+      const f = e.dataTransfer.files[0];
+      if (f) this.file = f;
+    },
+    handleFile(e) {
+      const f = e.target.files[0];
+      if (f) this.file = f;
     },
 
-    async analyzeUpload() {
-      if (!this.fileReady) return;
-      this.processing = true;
-      this.progress = 10;
-      this.progressMessage = "Loading AI…";
-      this.initPose();
+    /** ---------------- ANALYZE ---------------- */
+    async analyze() {
+      if (!this.file) return;
 
-      if (this.isImage) await this.analyzeImage();
-      else await this.analyzeVideoFast();
+      this.loading = true;
+      this.progress = 20;
+      this.statusText = "Preparing file...";
 
-      this.processing = false;
+      const url = URL.createObjectURL(this.file);
+
+      if (this.file.type.startsWith("image")) {
+        await this.processImage(url);
+      } else {
+        await this.processVideo(url);
+      }
+
+      URL.revokeObjectURL(url);
+      this.loading = false;
     },
 
-    async analyzeImage() {
-      const img = new Image(); img.src = this.mediaUrl;
+    /** ---- PROCESS IMAGE ---- */
+    async processImage(url) {
+      const img = new Image();
+      img.src = url;
+
       await img.decode();
-      this.progress = 70; this.progressMessage = "Analyzing…";
-      const res = await this.sendPose(img);
-      this.onPoseResults(res);
+
+      this.progress = 60;
+      this.statusText = "Analyzing image...";
+
+      this.setCanvasSize(img);
+      const result = await this.sendToPose(img);
+      this.processPose(result);
     },
 
-    async analyzeVideoFast() {
-      this.videoElement = this.$refs.videoElement;
-      await new Promise(r => { this.videoElement.onloadedmetadata = r; });
-      const dur = this.videoElement.duration;
-      const frames = [0.3, 0.7].map(p => p * dur);
-      let best = null, bestScore = -1;
+    /** ---- PROCESS VIDEO ---- */
+    async processVideo(url) {
+      const v = document.createElement("video");
+      v.src = url;
+
+      await v.play().catch(() => {});
+      await new Promise(res => v.onloadedmetadata = res);
+
+      this.videoEl = v;
+
+      const frames = [0.2, 0.5, 0.8];
+      let best = null;
+      let bestScore = -999;
 
       for (let i = 0; i < frames.length; i++) {
-        this.videoElement.currentTime = frames[i];
-        await new Promise(r => { this.videoElement.onseeked = r; });
-        this.progress = 40 + (i + 1) * 25;
-        this.progressMessage = `Scanning frame ${i+1}/2…`;
-        const res = await this.sendPose(this.videoElement);
-        this.onPoseResults(res);
+        const t = v.duration * frames[i];
+        v.currentTime = t;
+
+        await new Promise(res => v.onseeked = res);
+
+        this.statusText = `Analyzing frame ${i + 1}/${frames.length}`;
+        this.progress = 30 + (i + 1) * 20;
+
+        const r = await this.sendToPose(v);
+        this.processPose(r);
+
         if (this.result && this.result.score > bestScore) {
           bestScore = this.result.score;
           best = { ...this.result };
         }
       }
-      this.result = best || { exercise: "Squat", score: 0, depth: 0, issues: [] };
+
+      this.result = best;
     },
 
-    async startWebcam() {
-      this.clearAll();
-      this.webcamActive = true;
-      this.mediaReady = true;
-      const container = document.querySelector('.grid.md\\:grid-cols-2 > div:first-child');
-      const video = document.createElement('video');
-      video.id = 'webcamVideo'; video.autoplay = true; video.playsInline = true;
-      container.appendChild(video);
-
-      this.canvas = document.getElementById('outputCanvas');
-      this.canvas.classList.remove('hidden');
-      this.ctx = this.canvas.getContext('2d');
-      this.initPose();
-
-      this.camera = new Camera(video, {
-        onFrame: async () => { await this.pose.send({ image: video }); },
-        width: 640, height: 480, fps: 30
+    /** ---- SEND TO MEDIAPIPE ---- */
+    async sendToPose(image) {
+      return new Promise(resolve => {
+        const handler = (r) => {
+          this.pose.off("results", handler);
+          resolve(r);
+        };
+        this.pose.onResults(handler);
+        this.pose.send({ image });
       });
-      this.camera.start();
     },
 
-    stopWebcam() {
-      if (this.camera) this.camera.stop();
-      this.webcamActive = false;
-      const v = document.getElementById('webcamVideo');
-      if (v) v.remove();
-    },
+    /** ------- CAMERA ------- */
+    async startCamera() {
+      this.resetAll();
+      this.camActive = true;
 
-    onPoseResults(res) {
-      if (!this.canvas || !this.ctx) return;
-      const img = res.image;
-      if (img) {
-        this.canvas.width = img.width || img.videoWidth;
-        this.canvas.height = img.height || img.videoHeight;
-        this.ctx.drawImage(img, 0, 0, this.canvas.width, this.canvas.height);
+      const video = document.createElement("video");
+      this.videoEl = video;
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+        video.play();
+
+        this.camera = new Camera(video, {
+          onFrame: async () => {
+            await this.pose.send({ image: video });
+          },
+          width: 640,
+          height: 480
+        });
+
+        this.camera.start();
+      } catch (err) {
+        this.camActive = false;
+        alert("Camera permission denied.");
       }
-      if (!res.poseLandmarks) { this.hasPose = false; return; }
-      const lm = res.poseLandmarks.map(l => ({ ...l }));
-      this.hasPose = true;
+    },
+
+    stopCamera() {
+      if (this.camera) this.camera.stop();
+      this.camActive = false;
+    },
+
+    /** ---------- PROCESS RESULTS ---------- */
+    processPose(r) {
+      if (!r || !r.poseLandmarks) return;
+
+      const img = r.image;
+      this.setCanvasSize(img);
+      this.ctx.drawImage(img, 0, 0);
+
+      const lm = r.poseLandmarks.map(p => ({ ...p }));
       this.drawSkeleton(lm);
-      this.analyzeSquat(lm);
+      this.result = this.evaluateSquat(lm);
     },
 
+    /** ---------- DRAW SKELETON ---------- */
     drawSkeleton(lm) {
-      const conn = [[11,13],[13,15],[12,14],[14,16],[11,12],[23,24],[23,25],[25,27],[24,26],[26,28]];
-      this.ctx.strokeStyle = '#10b981'; this.ctx.lineWidth = 4;
-      conn.forEach(([a,b]) => {
-        if (lm[a].visibility > .6 && lm[b].visibility > .6) {
-          this.ctx.beginPath();
-          this.ctx.moveTo(lm[a].x * this.canvas.width, lm[a].y * this.canvas.height);
-          this.ctx.lineTo(lm[b].x * this.canvas.width, lm[b].y * this.canvas.height);
-          this.ctx.stroke();
-        }
-      });
+      const c = this.canvas;
+      const ctx = this.ctx;
+
+      const lines = [
+        [11,13],[13,15],
+        [12,14],[14,16],
+        [23,25],[25,27],
+        [24,26],[26,28]
+      ];
+
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = "#00e5ff";
+
+      for (const [a, b] of lines) {
+        if (lm[a].visibility < .6 || lm[b].visibility < .6) continue;
+        ctx.beginPath();
+        ctx.moveTo(lm[a].x * c.width, lm[a].y * c.height);
+        ctx.lineTo(lm[b].x * c.width, lm[b].y * c.height);
+        ctx.stroke();
+      }
     },
 
-    analyzeSquat(lm) {
+    /** ----------- SCORING LOGIC ----------- */
+    evaluateSquat(lm) {
+
       const L = i => lm[i];
-      const lHip = L(23), rHip = L(24), lKnee = L(25), rKnee = L(26);
-      const lAnkle = L(27), rAnkle = L(28), lShoulder = L(11);
 
-      const issues = [];
-      const avg = (...v) => v.reduce((a,b) => a+b)/v.length;
-      const hipY = avg(lHip.y, rHip.y);
-      const ankleY = avg(lAnkle.y, rAnkle.y);
-      const depth = Math.round(((ankleY - hipY) / (ankleY - 0.1)) * 100);
-      const depthPct = Math.min(100, Math.max(0, depth));
+      const hipY = (L(23).y + L(24).y) / 2;
+      const ankleY = (L(27).y + L(28).y) / 2;
+      const shoulder = { x: (L(11).x + L(12).x)/2, y:(L(11).y + L(12).y)/2 };
 
-      const vec = (a,b) => ({ x: b.x - a.x, y: b.y - a.y });
-      const angle = (a,b) => Math.acos(Math.min(1, Math.max(-1, (a.x*b.x + a.y*b.y) / (Math.hypot(a.x,a.y) * Math.hypot(b.x,b.y) || 1)))) * (180/Math.PI);
-      const backAngle = Math.round(angle(vec(lHip, lShoulder), { x: 0, y: -1 }));
+      const legLength = Math.abs(hipY - ankleY);
+      let depthPct = ((ankleY - hipY) / legLength) * 100;
+      depthPct = Math.max(0, Math.min(120, Math.round(depthPct)));
 
-      const drift = avg(Math.abs(lKnee.x - lAnkle.x), Math.abs(rKnee.x - rAnkle.x));
-      const kneeDriftCm = Math.round(drift * 60);
+      const torso = {
+        x: shoulder.x - ((L(23).x + L(24).x)/2),
+        y: shoulder.y - hipY
+      };
+      const backAngle = Math.round(
+        Math.acos(Math.abs(torso.y) / Math.hypot(torso.x, torso.y)) * 180 / Math.PI
+      );
+
+      const drift = Math.round(
+        ((Math.abs(L(25).x - L(27).x)) + Math.abs(L(26).x - L(28).x)) * 30
+      );
 
       let score = 100;
+      const issues = [];
 
-      // === DEPTH ===
-      if (depthPct < 40) {
-        score -= 35;
-        issues.push({ severity: 'major', title: "Too High", fix: "Lower your hips below knee level. Go deeper!" });
-      } else if (depthPct < 70) {
-        score -= 10;
-        issues.push({ severity: 'minor', title: "Shallow Depth", fix: "You're close — drop 2–3 more inches." });
-      }
+      if (depthPct < 40) { score -= 35; issues.push({ type:"major", title:"Squat too high", msg:"Drop hips lower." }); }
+      else if (depthPct < 70) { score -= 10; issues.push({ type:"minor", title:"Shallow squat", msg:"Go deeper for full ROM." }); }
 
-      // === BACK ===
-      if (backAngle > 35) {
-        score -= 25;
-        issues.push({ severity: 'major', title: "Back Leaning", fix: "Keep your chest up and spine neutral." });
-      } else if (backAngle > 20) {
-        score -= 10;
-        issues.push({ severity: 'minor', title: "Slight Lean", fix: "Pull shoulders back. Stay upright." });
-      }
+      if (backAngle > 35) { score -= 25; issues.push({ type:"major", title:"Back leaning forward", msg:"Keep chest upright." }); }
+      else if (backAngle > 20) { score -= 10; issues.push({ type:"minor", title:"Chest falling slightly", msg:"Engage core more." }); }
 
-      // === KNEES ===
-      if (kneeDriftCm > 10) {
-        score -= 20;
-        issues.push({ severity: 'major', title: "Knees Drifting Forward", fix: `Knees are ${kneeDriftCm}cm ahead of toes. Push hips back.` });
-      }
+      if (drift > 20) { score -= 20; issues.push({ type:"major", title:"Knees too far forward", msg:`Excessive knee drift (${drift}cm).` }); }
 
-      // === SYMMETRY ===
-      if (Math.abs(lHip.y - rHip.y) > 0.03) {
-        score -= 10;
-        issues.push({ severity: 'minor', title: "Uneven Hips", fix: "Balance weight evenly between both feet." });
-      }
+      if (issues.length === 0)
+        issues.push({ type:"good", title:"Excellent squat!", msg:"Form looks great." });
 
-      score = Math.max(0, Math.round(score));
+      return { score, items: issues };
+    },
 
-      this.result = {
-        exercise: "Squat",
-        score,
-        depth: depthPct,
-        issues
-      };
+    /** ---------- UTIL ---------- */
+    setCanvasSize(img) {
+      this.canvas.width = img.width || img.videoWidth;
+      this.canvas.height = img.height || img.videoHeight;
+    },
+
+    resetAll() {
+      this.stopCamera();
+      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      this.result = null;
+      this.file = null;
+      this.loading = false;
+      this.progress = 0;
     }
   };
 }
 </script>
 
-<script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </body>
 </html>
